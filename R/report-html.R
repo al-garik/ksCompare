@@ -102,9 +102,152 @@ ks_report_html <- function(
     path <- ks_resolve_output_path(path, x)
   }
   ks_ensure_dir(dirname(path))
-  htmltools::save_html(page, file = path)
+  ks_save_html_self_contained(page, path)
   cli::cli_alert_success("HTML report written to {.file {path}}")
   invisible(path)
+}
+
+#' Internal: write an `htmltools` tag list to a single self-contained HTML file
+#'
+#' Unlike `htmltools::save_html()`, which copies each `htmlDependency`'s
+#' files into a sibling `lib/` directory, this helper inlines every CSS
+#' and JS dependency directly into the document via `<style>` and
+#' `<script>` blocks. The result is a single portable file with no
+#' adjacent assets, which keeps `ks_report_html()` outputs tidy when many
+#' reports share an output folder.
+#'
+#' Image/font assets referenced from inlined CSS via `url(...)` are
+#' converted to `data:` URIs when the referenced file exists alongside
+#' the stylesheet; otherwise the URL is left as-is.
+#'
+#' @keywords internal
+#' @noRd
+ks_save_html_self_contained <- function(tags, path) {
+  rendered <- htmltools::renderTags(tags)
+  deps <- rendered$dependencies %||% list()
+
+  inlined <- vapply(
+    deps,
+    function(dep) ks_inline_dependency(dep),
+    character(1L)
+  )
+  head_blob <- paste(c(rendered$head, inlined), collapse = "\n")
+
+  doc <- as.character(rendered$html)
+
+  # Splice head_blob into <head> using literal string ops. We avoid
+  # sub()/gsub() here because the replacement string interprets
+  # backreferences (`\1`, `\\`, ...), and inlined JS/CSS bundles routinely
+  # contain those sequences, which would corrupt the output and prematurely
+  # close script tags.
+  doc <- ks_inject_into_head(doc, head_blob)
+
+  out <- paste0("<!DOCTYPE html>\n", doc)
+  writeLines(enc2utf8(out), path, useBytes = TRUE)
+  invisible(path)
+}
+
+# Insert `extra` immediately before </head>. If the document has <head>
+# but no closing tag, append after <head>. If it has neither, wrap the
+# whole document in a minimal <html><head>...</head>...</html> shell.
+ks_inject_into_head <- function(doc, extra) {
+  close_pos <- regexpr("</head\\s*>", doc, ignore.case = TRUE, perl = TRUE)
+  if (close_pos > 0L) {
+    return(paste0(
+      substr(doc, 1L, close_pos - 1L),
+      extra, "\n",
+      substr(doc, close_pos, nchar(doc))
+    ))
+  }
+  open_match <- regexpr("<head\\b[^>]*>", doc, ignore.case = TRUE, perl = TRUE)
+  if (open_match > 0L) {
+    open_end <- open_match + attr(open_match, "match.length") - 1L
+    return(paste0(
+      substr(doc, 1L, open_end),
+      "\n", extra, "\n</head>",
+      substr(doc, open_end + 1L, nchar(doc))
+    ))
+  }
+  paste0("<html>\n<head>\n", extra, "\n</head>\n<body>\n", doc, "\n</body>\n</html>")
+}
+
+ks_inline_dependency <- function(dep) {
+  src <- dep$src$file %||% dep$src
+  if (is.null(src) || !is.character(src) || !nzchar(src)) return("")
+
+  out <- character()
+
+  # Stylesheets ----------------------------------------------------------
+  for (css in as.character(dep$stylesheet %||% character())) {
+    f <- file.path(src, css)
+    if (!file.exists(f)) next
+    txt <- ks_read_text(f)
+    txt <- ks_inline_css_urls(txt, dirname(f))
+    txt <- gsub("</style", "<\\\\/style", txt, ignore.case = TRUE)
+    out <- c(out, paste0("<style>\n", txt, "\n</style>"))
+  }
+
+  # Scripts --------------------------------------------------------------
+  for (js in as.character(dep$script %||% character())) {
+    f <- file.path(src, js)
+    if (!file.exists(f)) next
+    txt <- ks_read_text(f)
+    # Prevent premature script termination. HTML5 ends a <script> on
+    # </script> case-insensitively, and "<!--" can switch the parser
+    # into script-data-escaped state, so neutralise both.
+    txt <- gsub("</script", "<\\\\/script", txt, ignore.case = TRUE)
+    txt <- gsub("<!--", "<\\\\!--", txt, fixed = TRUE)
+    out <- c(out, paste0("<script>\n", txt, "\n</script>"))
+  }
+
+  # Free-form <head> markup attached to the dependency -------------------
+  if (!is.null(dep$head) && nzchar(dep$head)) {
+    out <- c(out, as.character(dep$head))
+  }
+
+  paste(out, collapse = "\n")
+}
+
+ks_read_text <- function(path) {
+  paste(readLines(path, warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+}
+
+# Replace url(...) refs in CSS with data: URIs so we don't need any
+# sibling files. Leaves remote URLs and unresolved paths untouched.
+ks_inline_css_urls <- function(css, base_dir) {
+  re <- "url\\(\\s*(['\"]?)([^'\")]+)\\1\\s*\\)"
+  m <- gregexpr(re, css, perl = TRUE)
+  hits <- regmatches(css, m)[[1L]]
+  if (length(hits) == 0L) return(css)
+  replaced <- vapply(hits, function(token) {
+    url <- sub(re, "\\2", token, perl = TRUE)
+    if (grepl("^(data:|https?:|//)", url)) return(token)
+    f <- file.path(base_dir, url)
+    if (!file.exists(f)) return(token)
+    mime <- ks_guess_mime(f)
+    enc <- base64enc::base64encode(f)
+    sprintf("url(\"data:%s;base64,%s\")", mime, enc)
+  }, character(1L))
+  regmatches(css, m) <- list(replaced)
+  css
+}
+
+ks_guess_mime <- function(path) {
+  ext <- tolower(tools::file_ext(path))
+  switch(ext,
+    woff  = "font/woff",
+    woff2 = "font/woff2",
+    ttf   = "font/ttf",
+    otf   = "font/otf",
+    eot   = "application/vnd.ms-fontobject",
+    svg   = "image/svg+xml",
+    png   = "image/png",
+    jpg   = "image/jpeg",
+    jpeg  = "image/jpeg",
+    gif   = "image/gif",
+    webp  = "image/webp",
+    "application/octet-stream"
+  )
 }
 
 #' Internal: generate a default report file name from a `ks_comparison`

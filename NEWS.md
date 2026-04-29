@@ -35,7 +35,9 @@
     tables, an optional `group_by_key` mode that renders one collapsed
     block per key value, and a print-friendly stylesheet) and
     `ks_report_xlsx()` (openxlsx2 multi-sheet workbook with conditional
-    formatting on `OUT_DIF`).
+    formatting on `OUT_DIF`). The HTML report inlines every JS/CSS
+    dependency into a single file, so no sibling `lib/` folder is
+    written next to the report.
   * I/O: `ks_read_sas()` / `ks_read_xpt()` (haven wrappers preserving
     labelled metadata) and `ks_read_arrow()` (Parquet / Feather).
   * Ecosystem: `ks_assert_clean()` pipeline gate with

@@ -1,6 +1,6 @@
 Package: ksCompare
 Title: Smart Data Frame Comparison in the Spirit of SAS PROC COMPARE
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: 
     person("ksCompare", "authors", , "noreply@example.com", role = c("aut", "cre"))
 Description: A tidyverse-native engine for comparing two data frames in the
