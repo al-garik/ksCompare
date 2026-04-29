@@ -99,7 +99,7 @@ system.time({
         BMI    = ks_tol(rel = 1e-3)
       )
     ),
-    options   = ks_options(str_trim = TRUE, str_case = "fold")
+    options   = ks_comp_options(str_trim = TRUE, str_case = "fold")
   )
 })
 

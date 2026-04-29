@@ -26,7 +26,7 @@ ks_report_html(cmp, "qc.html")
 \itemize{
 \item \code{\link[=ks_compare]{ks_compare()}} -- main entry point.
 \item \code{\link[=ks_tol]{ks_tol()}} -- numeric tolerance (abs / rel / ULP, per-column).
-\item \code{\link[=ks_options]{ks_options()}} -- NA, SAS special-missing, label / format,
+\item \code{\link[=ks_comp_options]{ks_comp_options()}} -- NA, SAS special-missing, label / format,
 string normalisation, time-zone handling.
 \item \code{\link[=ks_assert_clean]{ks_assert_clean()}} / \code{\link[=ks_pointblank_step]{ks_pointblank_step()}} -- pipeline gates.
 \item \code{\link[=ks_report_html]{ks_report_html()}} / \code{\link[=ks_report_xlsx]{ks_report_xlsx()}} -- shareable reports.

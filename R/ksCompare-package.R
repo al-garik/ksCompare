@@ -21,7 +21,7 @@
 #'
 #' - [ks_compare()] -- main entry point.
 #' - [ks_tol()] -- numeric tolerance (abs / rel / ULP, per-column).
-#' - [ks_options()] -- NA, SAS special-missing, label / format,
+#' - [ks_comp_options()] -- NA, SAS special-missing, label / format,
 #'   string normalisation, time-zone handling.
 #' - [ks_assert_clean()] / [ks_pointblank_step()] -- pipeline gates.
 #' - [ks_report_html()] / [ks_report_xlsx()] -- shareable reports.

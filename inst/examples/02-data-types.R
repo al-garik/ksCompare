@@ -50,7 +50,7 @@ ks_compare(a, b, by = "id")
 # Treat case-only diffs as equal
 ks_compare(
   a, b, by = "id",
-  options = ks_options(str_case = "fold")
+  options = ks_comp_options(str_case = "fold")
 )
 
 # ---- Dates and POSIXct ---------------------------------------------------
@@ -70,10 +70,10 @@ b$ts_ny    <- as.POSIXct(format(a$ts_ny, tz = "UTC", usetz = FALSE), tz = "UTC")
 ks_compare(a, b, by = "id")
 
 # tz = "UTC" -> compare both sides converted to UTC
-ks_compare(a, b, by = "id", options = ks_options(tz = "UTC"))
+ks_compare(a, b, by = "id", options = ks_comp_options(tz = "UTC"))
 
 # tz = "strip" -> drop tzone before comparing
-ks_compare(a, b, by = "id", options = ks_options(tz = "strip"))
+ks_compare(a, b, by = "id", options = ks_comp_options(tz = "strip"))
 
 # ---- haven_labelled (SAS-style numerics) ---------------------------------
 
@@ -103,7 +103,7 @@ if (requireNamespace("haven", quietly = TRUE)) {
   # Suppress label-only schema diffs
   ks_compare(
     a, b, by = "id",
-    options = ks_options(compare_labels = FALSE)
+    options = ks_comp_options(compare_labels = FALSE)
   )$schema_diff
 
   # SAS special missing tags (.A-.Z, ._)

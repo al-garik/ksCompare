@@ -84,6 +84,30 @@ ks_tol_for <- function(tol, column) {
 #' missing-value semantics, label / format comparison, string
 #' normalisation, and time-zone handling.
 #'
+#' # Global defaults via `options()`
+#'
+#' Each argument falls back to a global R option in the `ksCompare.*`
+#' namespace, then to the package default. Precedence is:
+#' explicit argument > `getOption("ksCompare.<arg>")` > built-in default.
+#' That makes it possible to set project-wide defaults once and then
+#' call [ks_compare()] without repeating yourself:
+#'
+#' ```r
+#' # In .Rprofile or at the top of a script
+#' options(ksCompare.path     = "out/qc",
+#'         ksCompare.str_case = "fold")
+#'
+#' ks_compare(base, comp) |> ks_report_html()   # honours the globals
+#' ```
+#'
+#' [ks_set_comp_options()] is a small wrapper around [base::options()]
+#' that takes the same argument names without the `ksCompare.` prefix.
+#'
+#' Recognised options: `ksCompare.na_equal`, `ksCompare.sas_special_missing`,
+#' `ksCompare.compare_labels`, `ksCompare.compare_formats`,
+#' `ksCompare.str_trim`, `ksCompare.str_case`, `ksCompare.str_norm`,
+#' `ksCompare.tz`, `ksCompare.path`.
+#'
 #' @param na_equal Treat two `NA`s as equal? Default `TRUE`. With
 #'   `FALSE`, any cell where one side is `NA` and the other is not is
 #'   reported as a value diff; cells where *both* sides are `NA` are
@@ -120,33 +144,52 @@ ks_tol_for <- function(tol, column) {
 #'     as a diff if it changes the underlying instant).
 #'   - `"UTC"`: both sides are converted to UTC before compare.
 #'   - `"strip"`: `tzone` is dropped and values compared as POSIXct.
-#' @return A `ks_options` S3 list.
+#' @param path Optional output folder used by downstream writers
+#'   ([ks_report_html()], [ks_report_xlsx()]) when their own `path =`
+#'   argument is left blank. Default `NULL` means "use the current
+#'   working directory". The folder is created on first use if it does
+#'   not already exist. Setting it once on `ks_comp_options()` and
+#'   passing the result through `ks_compare()` keeps every artefact
+#'   from a single comparison run in the same place.
+#' @return A `ks_comp_options` S3 list.
+#' @seealso [ks_set_comp_options()] for setting the `ksCompare.*`
+#'   globals from R code.
 #' @export
 #' @examples
 #' # Defaults: strict NAs, label & format comparison on
-#' ks_options()
+#' ks_comp_options()
 #'
 #' # Loose strings: trim padding and ignore case
-#' ks_options(str_trim = TRUE, str_case = "fold")
+#' ks_comp_options(str_trim = TRUE, str_case = "fold")
 #'
 #' # Suppress label/format drift, but keep cell-level strictness
-#' ks_options(compare_labels = FALSE, compare_formats = FALSE)
+#' ks_comp_options(compare_labels = FALSE, compare_formats = FALSE)
 #'
 #' # Treat any NA as a difference (PROC COMPARE without NOMISS)
-#' ks_options(na_equal = FALSE)
-ks_options <- function(
-  na_equal = TRUE,
-  sas_special_missing = TRUE,
-  compare_labels = TRUE,
-  compare_formats = TRUE,
-  str_trim = FALSE,
-  str_case = c("sensitive", "fold"),
-  str_norm = c("none", "NFC"),
-  tz = c("preserve", "UTC", "strip")
+#' ks_comp_options(na_equal = FALSE)
+#'
+#' # Pin every report from this run to a dedicated folder
+#' ks_comp_options(path = tempfile("ksCompare_"))
+#'
+#' # Pick up a project-wide global path
+#' withr::with_options(
+#'   list(ksCompare.path = tempfile("ksCompare_")),
+#'   ks_comp_options()$path
+#' )
+ks_comp_options <- function(
+  na_equal            = getOption("ksCompare.na_equal",            TRUE),
+  sas_special_missing = getOption("ksCompare.sas_special_missing", TRUE),
+  compare_labels      = getOption("ksCompare.compare_labels",      TRUE),
+  compare_formats     = getOption("ksCompare.compare_formats",     TRUE),
+  str_trim            = getOption("ksCompare.str_trim",            FALSE),
+  str_case            = getOption("ksCompare.str_case",            "sensitive"),
+  str_norm            = getOption("ksCompare.str_norm",            "none"),
+  tz                  = getOption("ksCompare.tz",                  "preserve"),
+  path                = getOption("ksCompare.path",                NULL)
 ) {
-  str_case <- rlang::arg_match(str_case)
-  str_norm <- rlang::arg_match(str_norm)
-  tz <- rlang::arg_match(tz)
+  str_case <- rlang::arg_match0(str_case, c("sensitive", "fold"))
+  str_norm <- rlang::arg_match0(str_norm, c("none", "NFC"))
+  tz       <- rlang::arg_match0(tz,       c("preserve", "UTC", "strip"))
   for (nm in c(
     "na_equal", "sas_special_missing", "compare_labels",
     "compare_formats", "str_trim"
@@ -155,6 +198,14 @@ ks_options <- function(
     if (!is.logical(val) || length(val) != 1L || is.na(val)) {
       ks_abort(c(
         "!" = "{.arg {nm}} must be a single {.code TRUE} or {.code FALSE}."
+      ))
+    }
+  }
+  if (!is.null(path)) {
+    if (!is.character(path) || length(path) != 1L || is.na(path) ||
+        !nzchar(path)) {
+      ks_abort(c(
+        "!" = "{.arg path} must be {.code NULL} or a single non-empty string."
       ))
     }
   }
@@ -167,15 +218,68 @@ ks_options <- function(
       str_trim = str_trim,
       str_case = str_case,
       str_norm = str_norm,
-      tz = tz
+      tz = tz,
+      path = path
     ),
-    class = "ks_options"
+    class = "ks_comp_options"
   )
 }
 
+#' Set ksCompare global options
+#'
+#' Thin wrapper around [base::options()] for the `ksCompare.*` namespace.
+#' Accepts the same argument names as [ks_comp_options()] (without the
+#' `ksCompare.` prefix) and forwards them into [base::options()],
+#' returning the previous values invisibly so the call can be unwound
+#' with [base::options()] or [withr::with_options()].
+#'
+#' Globals set this way become the new defaults of
+#' [ks_comp_options()] (and therefore of [ks_compare()] when no
+#' `options =` argument is supplied).
+#'
+#' @param ... Named arguments. Recognised names match the formals of
+#'   [ks_comp_options()]: `na_equal`, `sas_special_missing`,
+#'   `compare_labels`, `compare_formats`, `str_trim`, `str_case`,
+#'   `str_norm`, `tz`, `path`. A single unnamed `ks_comp_options`
+#'   object may also be passed in, in which case all of its fields
+#'   are pushed.
+#' @return Invisibly, a named list of the previous values (suitable for
+#'   `do.call(options, prev)` to restore).
 #' @export
-print.ks_options <- function(x, ...) {
-  cli::cli_text("<ks_options>")
+#' @examples
+#' old <- ks_set_comp_options(path = tempfile("ksCompare_"), str_case = "fold")
+#' ks_comp_options()$path
+#' do.call(options, old)  # restore
+ks_set_comp_options <- function(...) {
+  args <- list(...)
+  if (length(args) == 1L && is.null(names(args)) &&
+      inherits(args[[1L]], "ks_comp_options")) {
+    o <- args[[1L]]
+    args <- as.list(unclass(o))
+  }
+  if (length(args) == 0L) return(invisible(list()))
+  if (is.null(names(args)) || any(!nzchar(names(args)))) {
+    ks_abort("All arguments to {.fn ks_set_comp_options} must be named.")
+  }
+  valid <- c(
+    "na_equal", "sas_special_missing", "compare_labels", "compare_formats",
+    "str_trim", "str_case", "str_norm", "tz", "path"
+  )
+  bad <- setdiff(names(args), valid)
+  if (length(bad)) {
+    ks_abort(c(
+      "!" = "Unknown option{?s}: {.field {bad}}.",
+      "i" = "Valid names are: {.field {valid}}."
+    ))
+  }
+  prefixed <- args
+  names(prefixed) <- paste0("ksCompare.", names(args))
+  invisible(do.call(options, prefixed))
+}
+
+#' @export
+print.ks_comp_options <- function(x, ...) {
+  cli::cli_text("<ks_comp_options>")
   for (nm in names(x)) {
     cli::cli_bullets(c("*" = "{.field {nm}}: {.val {x[[nm]]}}"))
   }

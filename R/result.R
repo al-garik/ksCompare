@@ -211,8 +211,9 @@ print.ks_comparison <- function(x, ...) {
     for (i in seq_len(nrow(ps))) {
       pct <- round(ps$coverage[[i]] * 100)
       detail <- if (is.na(ps$detail[[i]])) "" else paste0(" [", ps$detail[[i]], "]")
+      col_label <- if (is.na(ps$column[[i]])) "<all columns>" else ps$column[[i]]
       cli::cli_bullets(c(
-        "*" = "{.field {ps$column[[i]]}}: {.emph {ps$pattern[[i]]}} ({pct}%){detail}"
+        "*" = "{.field {col_label}}: {.emph {ps$pattern[[i]]}} ({pct}%){detail}"
       ))
     }
   }

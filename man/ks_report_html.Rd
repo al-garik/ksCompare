@@ -22,12 +22,15 @@ ks_report_html(
 \itemize{
 \item missing / \code{NULL} (default): a filename is auto-generated from the
 comparison's \code{base_name} (and, when distinct, \code{comp_name})
-written into the current working directory, e.g.
+written into \code{options$path} (if set on
+\code{\link[=ks_comp_options]{ks_comp_options()}}) or the current working directory, e.g.
 \code{ksCompare_adsl_vs_adsl_qc.html}.
 \item \code{NA}: nothing is written; the assembled \code{htmltools::tagList()} is
 returned for embedding in another document.
 \item a character path: written to that path. A \code{.html} extension is
-appended if missing.
+appended if missing. A bare filename (no directory component) is
+resolved relative to \code{options$path} when that has been set on
+\code{\link[=ks_comp_options]{ks_comp_options()}}, otherwise relative to the working directory.
 }}
 
 \item{title}{Title shown at the top of the report.}

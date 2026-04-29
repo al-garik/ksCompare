@@ -33,7 +33,7 @@ reference:
   contents:
   - ks_compare
   - ks_tol
-  - ks_options
+  - ks_comp_options
 - title: Inspect a comparison
   contents:
   - print.ks_comparison

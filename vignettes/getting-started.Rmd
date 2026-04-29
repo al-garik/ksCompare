@@ -105,7 +105,7 @@ ks_compare(base, comp, by = "id", tolerance = ks_tol(ulp = 4))
 
 ## Options
 
-`ks_options()` controls semantics that apply to all columns:
+`ks_comp_options()` controls semantics that apply to all columns:
 
 - `na_equal`: treat `NA == NA` as equal (default `TRUE`).
 - `sas_special_missing`: distinguish `.A`-`.Z` and `._` SAS missings
@@ -121,7 +121,7 @@ ks_compare(base, comp, by = "id", tolerance = ks_tol(ulp = 4))
 ```{r, eval = FALSE}
 ks_compare(
   base, comp, by = "id",
-  options = ks_options(str_trim = TRUE, str_case = "fold")
+  options = ks_comp_options(str_trim = TRUE, str_case = "fold")
 )
 ```
 

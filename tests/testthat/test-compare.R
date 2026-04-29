@@ -59,7 +59,7 @@ test_that("character options trim and case-fold", {
     a,
     b,
     by = "id",
-    options = ks_options(str_trim = TRUE, str_case = "fold")
+    options = ks_comp_options(str_trim = TRUE, str_case = "fold")
   )
   expect_equal(nrow(cmp_default$value_diff), 1L)
   expect_equal(nrow(cmp_smart$value_diff), 0L)
@@ -69,7 +69,7 @@ test_that("NA equality is configurable", {
   a <- data.frame(id = 1:2, x = c(NA_real_, 1))
   b <- data.frame(id = 1:2, x = c(NA_real_, 1))
   cmp_eq <- ks_compare(a, b, by = "id")
-  cmp_neq <- ks_compare(a, b, by = "id", options = ks_options(na_equal = FALSE))
+  cmp_neq <- ks_compare(a, b, by = "id", options = ks_comp_options(na_equal = FALSE))
   expect_equal(nrow(cmp_eq$value_diff), 0L)
   expect_equal(nrow(cmp_neq$value_diff), 1L)
 })

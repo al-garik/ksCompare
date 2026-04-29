@@ -98,7 +98,7 @@ fully Unicode-normalised comparison.
 ```{r, eval = FALSE}
 ks_compare(
   base, comp, by = "id",
-  options = ks_options(str_norm = "NFC")
+  options = ks_comp_options(str_norm = "NFC")
 )
 ```
 

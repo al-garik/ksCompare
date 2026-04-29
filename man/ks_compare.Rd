@@ -13,7 +13,7 @@ ks_compare(
   coerce = c("safe", "strict", "lossy"),
   dup_keys = c("first", "last", "keep_all", "all_pairs", "error"),
   allow_fuzzy_columns = FALSE,
-  options = ks_options(),
+  options = ks_comp_options(),
   base_name = NULL,
   comp_name = NULL
 )
@@ -87,9 +87,9 @@ Fuzzy column rename \emph{suggestions} are always returned on
 \code{cmp$column_suggestions} (when \code{stringdist} is installed) but are
 never applied silently.}
 
-\item{options}{A \code{\link[=ks_options]{ks_options()}} specification controlling NA / SAS
-special-missing semantics, label / format comparison, and string
-normalisation.}
+\item{options}{A \code{\link[=ks_comp_options]{ks_comp_options()}} specification controlling NA /
+SAS special-missing semantics, label / format comparison, string
+normalisation, and the default output folder for reports.}
 
 \item{base_name, comp_name}{Optional display names for the two frames
 (used in \code{print()} and reports). Default to the names of the
@@ -117,7 +117,7 @@ render via \code{\link[=ks_report_html]{ks_report_html()}} / \code{\link[=ks_rep
 }
 \description{
 \code{ks_compare()} is the single entry point for the package. It compares
-\code{base} against \code{comp} and returns a \link{ks_comparison} S3 object containing
+\code{base} against \code{comp} and returns a \code{ks_comparison} S3 object containing
 schema, key, row, and value differences plus a small QC manifest.
 }
 \section{Pipeline}{
@@ -133,7 +133,7 @@ matched by row position when \code{by = NULL}.
 \code{cmp$meta$matching} (also displayed by \code{\link[=print]{print()}} and in the HTML
 report).
 \item \strong{Cell diff} — per-column equality respecting \code{\link[=ks_tol]{ks_tol()}} (abs /
-rel / ULP) for numerics, \code{\link[=ks_options]{ks_options()}} for strings / NAs / SAS
+rel / ULP) for numerics, \code{\link[=ks_comp_options]{ks_comp_options()}} for strings / NAs / SAS
 special missings, and \code{vctrs::vec_cast()} for compatible types.
 \item \strong{Pattern detection} — recurring shapes across diffs (constant
 offset, sign flip, trim-only, …) are scored and surfaced on

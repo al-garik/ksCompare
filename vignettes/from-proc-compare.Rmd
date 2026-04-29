@@ -30,7 +30,7 @@ tibbles you can render however you like.
 | `METHOD = RELATIVE` / `PERCENT`     | `tolerance = ks_tol(rel = 1e-5)`                          |
 | `METHOD = EXACT`                    | `tolerance = ks_tol()` (default, strict)                  |
 | (floating-point round-trip noise)   | `tolerance = ks_tol(ulp = 4)`                             |
-| `NOMISS`                            | `options = ks_options(na_equal = FALSE)`                  |
+| `NOMISS`                            | `options = ks_comp_options(na_equal = FALSE)`                  |
 | `OUT=`                              | `as_outbase()` / `as_outcomp()`                           |
 | `OUTDIF`                            | `as_outdif()`                                             |
 | `OUTNOEQUAL`                        | `as_outnoequal()`                                         |

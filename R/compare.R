@@ -1,7 +1,7 @@
 #' Compare two data frames
 #'
 #' `ks_compare()` is the single entry point for the package. It compares
-#' `base` against `comp` and returns a [ks_comparison] S3 object containing
+#' `base` against `comp` and returns a `ks_comparison` S3 object containing
 #' schema, key, row, and value differences plus a small QC manifest.
 #'
 #' # Pipeline
@@ -17,7 +17,7 @@
 #'    `cmp$meta$matching` (also displayed by [print()] and in the HTML
 #'    report).
 #' 4. **Cell diff** — per-column equality respecting [ks_tol()] (abs /
-#'    rel / ULP) for numerics, [ks_options()] for strings / NAs / SAS
+#'    rel / ULP) for numerics, [ks_comp_options()] for strings / NAs / SAS
 #'    special missings, and `vctrs::vec_cast()` for compatible types.
 #' 5. **Pattern detection** — recurring shapes across diffs (constant
 #'    offset, sign flip, trim-only, …) are scored and surfaced on
@@ -78,9 +78,9 @@
 #'   Fuzzy column rename *suggestions* are always returned on
 #'   `cmp$column_suggestions` (when `stringdist` is installed) but are
 #'   never applied silently.
-#' @param options A [ks_options()] specification controlling NA / SAS
-#'   special-missing semantics, label / format comparison, and string
-#'   normalisation.
+#' @param options A [ks_comp_options()] specification controlling NA /
+#'   SAS special-missing semantics, label / format comparison, string
+#'   normalisation, and the default output folder for reports.
 #' @param base_name,comp_name Optional display names for the two frames
 #'   (used in `print()` and reports). Default to the names of the
 #'   supplied expressions.
@@ -135,7 +135,7 @@ ks_compare <- function(
   coerce = c("safe", "strict", "lossy"),
   dup_keys = c("first", "last", "keep_all", "all_pairs", "error"),
   allow_fuzzy_columns = FALSE,
-  options = ks_options(),
+  options = ks_comp_options(),
   base_name = NULL,
   comp_name = NULL
 ) {
@@ -152,8 +152,8 @@ ks_compare <- function(
   if (!inherits(tolerance, "ks_tol")) {
     ks_abort("{.arg tolerance} must be created with {.fn ks_tol}.")
   }
-  if (!inherits(options, "ks_options")) {
-    ks_abort("{.arg options} must be created with {.fn ks_options}.")
+  if (!inherits(options, "ks_comp_options")) {
+    ks_abort("{.arg options} must be created with {.fn ks_comp_options}.")
   }
 
   base <- ks_load_input(base, arg_name = "base")

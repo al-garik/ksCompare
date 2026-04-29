@@ -239,12 +239,12 @@ adlb_qc$AVAL[c(11, 47, 88)] <- adlb_qc$AVAL[c(11, 47, 88)] * 1.05
 cmp_adsl_full <- ks_compare(
   adsl_prod, adsl_qc,
   by      = "USUBJID",
-  options = ks_options(str_case = "fold")        # tolerate ARM casing drift
+  options = ks_comp_options(str_case = "fold")        # tolerate ARM casing drift
 )
 cmp_adae_full <- ks_compare(
   adae_prod, adae_qc,
   by      = c("USUBJID", "AESEQ"),
-  options = ks_options(str_trim = TRUE)          # tolerate whitespace drift
+  options = ks_comp_options(str_trim = TRUE)          # tolerate whitespace drift
 )
 cmp_adlb_full <- ks_compare(
   adlb_prod, adlb_qc,
@@ -348,9 +348,9 @@ dev$AVALC[c(2, 5, 9, 14)] <- tolower(dev$AVALC[c(2, 5, 9, 14)])
 
 cmp_prod <- ks_compare(ref, prod, by = "USUBJID")
 cmp_uat  <- ks_compare(ref, uat,  by = "USUBJID",
-                       options = ks_options(str_case = "fold"))
+                       options = ks_comp_options(str_case = "fold"))
 cmp_dev  <- ks_compare(ref, dev,  by = "USUBJID",
-                       options = ks_options(str_case = "fold"))
+                       options = ks_comp_options(str_case = "fold"))
 
 drift_agent <- create_agent(
   tbl     = ref,
@@ -383,13 +383,13 @@ drift_agent
 domains <- list(
   ADSL = list(prod = adsl_prod, qc = adsl_qc,
               by   = "USUBJID",
-              opts = ks_options(str_case = "fold")),
+              opts = ks_comp_options(str_case = "fold")),
   ADAE = list(prod = adae_prod, qc = adae_qc,
               by   = c("USUBJID", "AESEQ"),
-              opts = ks_options(str_trim = TRUE)),
+              opts = ks_comp_options(str_trim = TRUE)),
   ADLB = list(prod = adlb_prod, qc = adlb_qc,
               by   = c("USUBJID", "PARAMCD", "VISIT"),
-              opts = ks_options(),
+              opts = ks_comp_options(),
               tol  = ks_tol(abs = 0, per_column = list(CHG = ks_tol(abs = 0.01))))
 )
 
@@ -403,7 +403,7 @@ for (nm in names(domains)) {
   d   <- domains[[nm]]
   cmp <- ks_compare(
     d$prod, d$qc, by = d$by,
-    options   = if (is.null(d$opts)) ks_options() else d$opts,
+    options   = if (is.null(d$opts)) ks_comp_options() else d$opts,
     tolerance = if (is.null(d$tol))  ks_tol()     else d$tol
   )
   budget <- max(1L, ceiling(0.001 * nrow(d$prod) * ncol(d$prod)))

@@ -117,11 +117,7 @@ ks_value_diff_one <- function(
     return(ks_empty_value_diff())
   }
 
-  diff_num <- if (kind %in% c("integer", "double")) {
-    suppressWarnings(as.numeric(b[unequal]) - as.numeric(c[unequal]))
-  } else {
-    rep(NA_real_, sum(unequal))
-  }
+  diff_num <- ks_diff_numeric(b, c, kind, unequal)
 
   notes <- ks_explain_diffs(
     b[unequal],
@@ -143,10 +139,62 @@ ks_value_diff_one <- function(
   )
 }
 
-#' Internal: build a human-friendly note explaining each diff
+#' Internal: numeric diff (base - comp) for the cells flagged as unequal
 #'
-#' Surfaces non-obvious causes that aren't visible from the rendered
-#' base/compare values alone:
+#' For numeric kinds the diff is plain subtraction. For dates the diff is
+#' expressed in days, for datetimes in seconds (matching the natural
+#' resolution of `Date` and `POSIXct`). For other kinds we return NA so the
+#' Diff column is rendered as `-` rather than as a meaningless number.
+#'
+#' @keywords internal
+#' @noRd
+ks_diff_numeric <- function(b, c, kind, unequal) {
+  n <- sum(unequal)
+  if (n == 0L) return(numeric())
+  switch(
+    kind,
+    integer = ,
+    double = suppressWarnings(
+      as.numeric(b[unequal]) - as.numeric(c[unequal])
+    ),
+    date = {
+      bb <- as.numeric(unclass(as.Date(b[unequal])))
+      cc <- as.numeric(unclass(as.Date(c[unequal])))
+      bb - cc
+    },
+    datetime = {
+      bb <- as.numeric(as.POSIXct(b[unequal]))
+      cc <- as.numeric(as.POSIXct(c[unequal]))
+      bb - cc
+    },
+    logical = suppressWarnings(
+      as.numeric(b[unequal]) - as.numeric(c[unequal])
+    ),
+    rep(NA_real_, n)
+  )
+}
+
+#' Internal: render a numeric duration in human-friendly units
+#'
+#' @keywords internal
+#' @noRd
+ks_format_duration <- function(seconds) {
+  if (!is.finite(seconds) || seconds == 0) return(NA_character_)
+  sign_str <- if (seconds < 0) "-" else "+"
+  s <- abs(seconds)
+  fmt <- function(value, unit) {
+    txt <- formatC(value, format = "fg", digits = 3)
+    paste0(sign_str, txt, " ", unit)
+  }
+  if (s < 60)            return(fmt(s, "s"))
+  if (s < 3600)          return(fmt(s / 60, "min"))
+  if (s < 86400)         return(fmt(s / 3600, "h"))
+  if (s < 86400 * 30)    return(fmt(s / 86400, "days"))
+  if (s < 86400 * 365.25) return(fmt(s / (86400 * 30.4375), "months"))
+  fmt(s / (86400 * 365.25), "years")
+}
+
+
 #' - leading / trailing / internal whitespace
 #' - case-only differences
 #' - empty-string vs `NA`
@@ -260,10 +308,49 @@ ks_explain_diffs <- function(b, c, kind, diff_num, type_note = NA_character_) {
       notes[[i]] <- cues
     }
   } else if (kind %in% c("date", "datetime")) {
+    seconds_per_day <- 86400
+    is_datetime <- kind == "datetime"
+    tz_b <- attr(b, "tzone", exact = TRUE)
+    tz_c <- attr(c, "tzone", exact = TRUE)
+    tz_b <- if (is.null(tz_b) || identical(tz_b, "")) "UTC" else tz_b[[1]]
+    tz_c <- if (is.null(tz_c) || identical(tz_c, "")) "UTC" else tz_c[[1]]
+    tz_differs <- !identical(tz_b, tz_c)
     for (i in seq_len(n)) {
       cues <- character()
-      if (is.na(b[[i]]) && !is.na(c[[i]])) cues <- c(cues, "base is NA")
-      if (!is.na(b[[i]]) && is.na(c[[i]])) cues <- c(cues, "compare is NA")
+      bi <- b[[i]]
+      ci <- c[[i]]
+      if (is.na(bi) && !is.na(ci)) {
+        cues <- c(cues, "base is NA")
+      } else if (!is.na(bi) && is.na(ci)) {
+        cues <- c(cues, "compare is NA")
+      } else if (!is.na(diff_num[[i]])) {
+        if (is_datetime) {
+          dur <- ks_format_duration(diff_num[[i]])
+          if (!is.na(dur)) cues <- c(cues, paste0("base - compare = ", dur))
+          if (abs(diff_num[[i]]) > 0 && abs(diff_num[[i]]) < 1) {
+            cues <- c(cues, "sub-second difference")
+          } else if (
+            abs(diff_num[[i]]) %% seconds_per_day == 0 && abs(diff_num[[i]]) > 0
+          ) {
+            cues <- c(cues, "whole-day offset")
+          }
+          if (tz_differs) {
+            cues <- c(cues, sprintf("timezone differs (%s vs %s)", tz_b, tz_c))
+          }
+        } else {
+          # date kind: report in days; for >= 365 days also annotate years
+          dd <- diff_num[[i]]
+          sign_str <- if (dd < 0) "-" else "+"
+          d_abs <- abs(dd)
+          txt <- paste0(sign_str, formatC(d_abs, format = "fg", digits = 6),
+                        if (d_abs == 1) " day" else " days")
+          if (d_abs >= 365) {
+            yrs <- formatC(d_abs / 365.25, format = "fg", digits = 3)
+            txt <- paste0(txt, " (~", sign_str, yrs, " years)")
+          }
+          cues <- c(cues, paste0("base - compare = ", txt))
+        }
+      }
       notes[[i]] <- cues
     }
   } else if (kind == "logical") {

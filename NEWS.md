@@ -1,4 +1,4 @@
-# ksCompare (development version)
+# ksCompare 0.1.0
 
 * Initial development release. ksCompare is a tidyverse-native engine for
   comparing two data frames in the spirit of SAS `PROC COMPARE`, with
@@ -7,8 +7,12 @@
     uniqueness inference, and explicit column `mapping`.
   * `ks_tol()` with absolute, relative, and ULP tolerance plus per-column
     overrides.
-  * `ks_options()` for NA semantics, SAS special-missing handling,
-    label/format comparison, and string trim/case/normalize toggles.
+  * `ks_comp_options()` for NA semantics, SAS special-missing handling,
+    label/format comparison, string trim/case/normalize toggles, and an
+    optional `path` that pins every downstream `ks_report_*()` artefact
+    to a single output folder. Every field also falls back to a
+    `getOption("ksCompare.<arg>")` global, and `ks_set_comp_options()`
+    forwards to `options()` for project-wide defaults.
   * `ks_comparison` S3 with `print()`, `summary()`, `as_tibble()`,
     `ks_tidy()`, `ks_glance()`.
   * Per-type cell diff for numeric (with ULP-aware compare), character,

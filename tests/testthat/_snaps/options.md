@@ -22,19 +22,19 @@
       Error in `ks_tol()`:
       ! Each element of `per_column` must be created with `ks_tol()`.
 
-# ks_options validates choices
+# ks_comp_options validates choices
 
     Code
-      ks_options(str_case = "upper")
+      ks_comp_options(str_case = "upper")
     Condition
-      Error in `ks_options()`:
+      Error in `ks_comp_options()`:
       ! `str_case` must be one of "sensitive" or "fold", not "upper".
 
 ---
 
     Code
-      ks_options(na_equal = NA)
+      ks_comp_options(na_equal = NA)
     Condition
-      Error in `ks_options()`:
+      Error in `ks_comp_options()`:
       ! `na_equal` must be a single `TRUE` or `FALSE`.
 

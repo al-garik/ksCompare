@@ -15,12 +15,15 @@
 #' @param path File path for the report. Three behaviours:
 #'   - missing / `NULL` (default): a filename is auto-generated from the
 #'     comparison's `base_name` (and, when distinct, `comp_name`)
-#'     written into the current working directory, e.g.
+#'     written into `options$path` (if set on
+#'     [ks_comp_options()]) or the current working directory, e.g.
 #'     `ksCompare_adsl_vs_adsl_qc.html`.
 #'   - `NA`: nothing is written; the assembled `htmltools::tagList()` is
 #'     returned for embedding in another document.
 #'   - a character path: written to that path. A `.html` extension is
-#'     appended if missing.
+#'     appended if missing. A bare filename (no directory component) is
+#'     resolved relative to `options$path` when that has been set on
+#'     [ks_comp_options()], otherwise relative to the working directory.
 #' @param title Title shown at the top of the report.
 #' @param subtitle Optional subtitle (e.g. study identifier or run id).
 #' @param max_rows Per-table row cap (default `2000`). When the value-diff
@@ -96,7 +99,9 @@ ks_report_html <- function(
     if (!nzchar(tools::file_ext(path))) {
       path <- paste0(path, ".html")
     }
+    path <- ks_resolve_output_path(path, x)
   }
+  ks_ensure_dir(dirname(path))
   htmltools::save_html(page, file = path)
   cli::cli_alert_success("HTML report written to {.file {path}}")
   invisible(path)
@@ -105,8 +110,9 @@ ks_report_html <- function(
 #' Internal: generate a default report file name from a `ks_comparison`
 #'
 #' Filename is `ksCompare_<base>_vs_<comp>.<ext>` (or
-#' `ksCompare_<base>.<ext>` when names match), placed in the current
-#' working directory and sanitized for safe filesystem use.
+#' `ksCompare_<base>.<ext>` when names match), placed in the
+#' comparison's `options$path` folder when set, otherwise the current
+#' working directory. Filenames are sanitized for safe filesystem use.
 #'
 #' @keywords internal
 #' @noRd
@@ -118,7 +124,49 @@ ks_default_report_path <- function(x, ext = "html") {
   } else {
     paste0("ksCompare_", bn, "_vs_", cn)
   }
-  file.path(getwd(), paste0(stem, ".", ext))
+  dir <- ks_options_path(x) %||% getwd()
+  file.path(dir, paste0(stem, ".", ext))
+}
+
+#' Internal: resolve a user-supplied report path against `options$path`
+#'
+#' If `path` is absolute (or has an explicit directory component) it is
+#' returned unchanged. Otherwise it is resolved relative to the
+#' comparison's `options$path`, falling back to the current working
+#' directory when that option was not set.
+#'
+#' @keywords internal
+#' @noRd
+ks_resolve_output_path <- function(path, x) {
+  dir <- ks_options_path(x)
+  if (is.null(dir)) return(path)
+  # leave caller-supplied directory components alone
+  has_dir <- grepl("[\\\\/]", path)
+  if (has_dir) return(path)
+  file.path(dir, path)
+}
+
+#' Internal: pull the output folder set on `ks_comp_options()`
+#' @keywords internal
+#' @noRd
+ks_options_path <- function(x) {
+  opts <- x$options
+  if (is.null(opts)) return(NULL)
+  p <- opts$path
+  if (is.null(p) || !nzchar(p)) NULL else p
+}
+
+#' Internal: ensure a directory exists (create recursively if needed)
+#' @keywords internal
+#' @noRd
+ks_ensure_dir <- function(dir) {
+  if (is.null(dir) || identical(dir, "") || identical(dir, ".")) {
+    return(invisible(NULL))
+  }
+  if (!dir.exists(dir)) {
+    dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  invisible(NULL)
 }
 
 ks_sanitize_filename <- function(x) {
@@ -1182,12 +1230,40 @@ ks_pattern_glossary <- function() {
   list(
     constant_offset = "Every diff is the same additive shift (`base - comp` is constant). Detail shows the offset.",
     constant_scale = "Every diff is the same multiplicative factor (`base / comp` is constant). Detail shows the ratio.",
+    percentage_scale = "Constant scale of 100 (or 1/100) -- one side stores a fraction, the other a percent.",
+    unit_scale = "Constant scale matching a known unit conversion (kg/lb, m/ft, mi/km, etc.). Detail names the conversion.",
     sign_flip = "`base` and `comp` are negatives of each other (`base == -comp`).",
+    signed_vs_abs = "One side stores the absolute value of the other.",
     integer_round = "One side equals the rounded value of the other (e.g. `1.7` vs `2`).",
+    precision_truncated = "One side is the rounding of the other to a fixed number of decimal places. Detail shows the precision.",
+    null_as_zero = "On rows where one side is NA, the other side is 0 -- 'NA filled with zero' upstream.",
+    null_as_sentinel = "On rows where one side is NA, the other is a sentinel value such as -999 / 99999998.",
+    monotone_drift = "Diff trends with row order (Spearman rho >= 0.9) -- systematic drift, not noise.",
+    flag_polarity_swapped = "Logical column with TRUE/FALSE inverted between sides.",
+    true_to_na = "TRUE on one side, NA on the other (filter or coercion dropped the flag).",
+    false_to_na = "FALSE on one side, NA on the other.",
+    epoch_swap = "Date / datetime offset matches a known epoch delta (SAS 1960 vs Unix 1970, Excel 1900 / 1904).",
+    tz_hour_offset = "Constant whole-hour offset on a datetime column -- likely DST or timezone.",
+    year_offset = "Constant whole-year offset on a date column.",
+    midnight_truncation = "Datetime collapsed to date (time component zeroed) on one side.",
     trim_only = "Strings differ only by leading or trailing whitespace.",
     whitespace_only = "Strings differ only in internal whitespace (after collapsing spaces).",
     case_only = "Strings differ only in letter case (e.g. `\"Yes\"` vs `\"yes\"`).",
-    factor_recoded = "Factor levels appear consistently re-mapped between sides; detail shows `old -> new` pairs."
+    unicode_normalization_only = "Strings differ only in Unicode composition (e.g. composed `e\u0301` vs decomposed).",
+    punctuation_only = "Strings differ only in punctuation / spacing.",
+    prefix_added = "comp side gained a constant prefix not present on base.",
+    prefix_removed = "base side has an extra constant prefix not on comp.",
+    suffix_added = "comp side gained a constant suffix.",
+    suffix_removed = "base side has an extra constant suffix.",
+    zero_padded = "One side stores integers as fixed-width zero-padded strings (e.g. `\"007\"` vs `\"7\"`).",
+    truncated_to_width = "One side truncated to a fixed character width (e.g. SAS `$8.` format).",
+    abbreviation = "One side stores a varying-length prefix of the other (e.g. `\"Female\"` -> `\"F\"`).",
+    coded_decode = "Each base value maps consistently to one comp value (code/decode lookup).",
+    factor_recoded = "Factor levels appear consistently re-mapped between sides; detail shows `old -> new` pairs.",
+    near_match = "String pairs are close edit-distance matches (likely typos).",
+    pareto_columns = "A small number of columns explain the bulk of all diff cells.",
+    pareto_keys = "A single key_id accounts for a large share of diff cells.",
+    paired_columns = "Two columns differ on almost the same rows -- likely linked by a derivation."
   )
 }
 
@@ -1513,9 +1589,23 @@ ks_js_diff_cell <- function() {
       if (!isFinite(num)) {
         return '<span class=\"ks-dim\" title=\"not applicable\">-</span>';
       }
+      var kind = cellInfo.row && cellInfo.row['kind'];
+      var unit = '';
+      var display = num;
+      if (kind === 'date') {
+        unit = ' d';
+      } else if (kind === 'datetime') {
+        var abs = Math.abs(num);
+        if (abs >= 86400) { display = num / 86400; unit = ' d'; }
+        else if (abs >= 3600) { display = num / 3600; unit = ' h'; }
+        else if (abs >= 60) { display = num / 60; unit = ' min'; }
+        else { unit = ' s'; }
+      }
       var cls = num > 0 ? 'ks-diff-pos' : (num < 0 ? 'ks-diff-neg' : 'ks-dim');
-      var formatted = num.toLocaleString(undefined, { maximumFractionDigits: 6 });
-      return '<span class=\"' + cls + '\">' + formatted + '</span>';
+      var formatted = display.toLocaleString(undefined, { maximumFractionDigits: 3 });
+      var sign = num > 0 ? '+' : '';
+      var title = (kind ? kind + ': ' : '') + num + (kind === 'date' ? ' days' : (kind === 'datetime' ? ' seconds' : ''));
+      return '<span class=\"' + cls + '\" title=\"' + title + '\">' + sign + formatted + unit + '</span>';
     }"
   )
 }

@@ -258,7 +258,7 @@ ks_normalize_format <- function(x) {
 
 #' Internal: equality test for SAS format attributes
 #'
-#' Like [ks_attr_equal()] but tolerant of the trailing-dot and case
+#' Like `ks_attr_equal()` but tolerant of the trailing-dot and case
 #' differences that legitimately arise from different SAS importers.
 #'
 #' @keywords internal
@@ -301,7 +301,7 @@ ks_attr_diff_note <- function(a, b) {
 #' Internal: explain why two SAS format attributes differ
 #'
 #' Recognises the SAS-specific cases (trailing dot, letter case) and
-#' otherwise falls through to [ks_attr_diff_note()] for the generic
+#' otherwise falls through to `ks_attr_diff_note()` for the generic
 #' whitespace/length/text reasons.
 #'
 #' @keywords internal

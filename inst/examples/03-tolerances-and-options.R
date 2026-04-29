@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # 03 - Tolerances and options
 #
-# Demonstrates all knobs of ks_tol() and ks_options() side by side.
+# Demonstrates all knobs of ks_tol() and ks_comp_options() side by side.
 # ---------------------------------------------------------------------------
 
 library(ksCompare)
@@ -52,7 +52,7 @@ ks_compare(
   tolerance = ks_tol(ulp = 8)
 )
 
-# ---- ks_options() --------------------------------------------------------
+# ---- ks_comp_options() --------------------------------------------------------
 
 a <- data.frame(
   id  = 1:3,
@@ -73,11 +73,11 @@ ks_compare(a, b, by = "id")
 # Trim + fold case -> no string diffs
 ks_compare(
   a, b, by = "id",
-  options = ks_options(str_trim = TRUE, str_case = "fold")
+  options = ks_comp_options(str_trim = TRUE, str_case = "fold")
 )
 
 # Treat NA != NA (PROC COMPARE without NOMISS) -> NA at id=2 surfaces
-ks_compare(a, b, by = "id", options = ks_options(na_equal = FALSE))
+ks_compare(a, b, by = "id", options = ks_comp_options(na_equal = FALSE))
 
 # Suppress label/format drift on schema
 attr(a$n, "label")      <- "Numeric value"
@@ -89,5 +89,30 @@ ks_compare(a, b, by = "id")$schema_diff
 
 ks_compare(
   a, b, by = "id",
-  options = ks_options(compare_labels = FALSE, compare_formats = FALSE)
+  options = ks_comp_options(compare_labels = FALSE, compare_formats = FALSE)
 )$schema_diff
+
+
+# ---- ks_comp_options(path = ...) ----------------------------------------
+# Pin every report from one comparison run to a dedicated folder.
+# When `path` is set on the options, both ks_report_html() and
+# ks_report_xlsx() auto-name their output files (ksCompare_<base>_vs_<comp>)
+# and resolve bare filenames against this folder.
+out_dir <- tempfile("ksCompare_demo_")
+cmp <- ks_compare(
+  iris, iris, by = "Species",
+  options = ks_comp_options(path = out_dir)
+)
+# ks_report_html(cmp)               # -> <out_dir>/ksCompare_iris.html
+# ks_report_xlsx(cmp, "qc.xlsx")    # -> <out_dir>/qc.xlsx
+
+
+# ---- Global defaults via options() --------------------------------------
+# Every formal of ks_comp_options() falls back to a `ksCompare.*` global,
+# so project-wide defaults can be set once and reused. ks_set_comp_options()
+# is a thin wrapper around base options() that takes the same names without
+# the `ksCompare.` prefix and returns the previous values invisibly.
+old <- ks_set_comp_options(path = tempfile("ksCompare_"), str_case = "fold")
+ks_comp_options()$path     # picked up automatically
+# ks_compare(iris, iris, by = "Species") |> ks_report_html()  # uses globals
+do.call(options, old)      # restore

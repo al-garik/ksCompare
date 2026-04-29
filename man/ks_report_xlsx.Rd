@@ -4,12 +4,18 @@
 \alias{ks_report_xlsx}
 \title{Render an Excel workbook report}
 \usage{
-ks_report_xlsx(x, path, highlight = TRUE, threshold = 0)
+ks_report_xlsx(x, path = NULL, highlight = TRUE, threshold = 0)
 }
 \arguments{
 \item{x}{A \code{ks_comparison} object.}
 
-\item{path}{File path ending in \code{.xlsx}.}
+\item{path}{File path for the workbook. When \code{NULL} (default), the
+filename is auto-generated from the comparison's \code{base_name} /
+\code{comp_name} and placed in \code{options$path} (if set on
+\code{\link[=ks_comp_options]{ks_comp_options()}}) or the current working directory, e.g.
+\code{ksCompare_adsl_vs_adsl_qc.xlsx}. A \code{.xlsx} extension is appended
+if missing. A bare filename is resolved against \code{options$path}
+when that has been set.}
 
 \item{highlight}{If \code{TRUE} (default), apply conditional formatting to
 highlight numeric \code{OUT_DIF} cells whose magnitude is above \code{threshold}.}
@@ -30,5 +36,12 @@ value differences are highlighted on the wide \code{OUT_DIF} sheet.
 \dontrun{
   cmp <- ks_compare(iris, iris, by = "Species")
   ks_report_xlsx(cmp, "report.xlsx")
+
+  # Auto-named output in a pinned folder
+  cmp2 <- ks_compare(
+    iris, iris, by = "Species",
+    options = ks_comp_options(path = tempfile("ksCompare_"))
+  )
+  ks_report_xlsx(cmp2)
 }
 }

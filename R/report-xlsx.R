@@ -6,7 +6,13 @@
 #' value differences are highlighted on the wide `OUT_DIF` sheet.
 #'
 #' @param x A `ks_comparison` object.
-#' @param path File path ending in `.xlsx`.
+#' @param path File path for the workbook. When `NULL` (default), the
+#'   filename is auto-generated from the comparison's `base_name` /
+#'   `comp_name` and placed in `options$path` (if set on
+#'   [ks_comp_options()]) or the current working directory, e.g.
+#'   `ksCompare_adsl_vs_adsl_qc.xlsx`. A `.xlsx` extension is appended
+#'   if missing. A bare filename is resolved against `options$path`
+#'   when that has been set.
 #' @param highlight If `TRUE` (default), apply conditional formatting to
 #'   highlight numeric `OUT_DIF` cells whose magnitude is above `threshold`.
 #' @param threshold Numeric threshold for highlighting (default `0`, so any
@@ -18,9 +24,16 @@
 #' \dontrun{
 #'   cmp <- ks_compare(iris, iris, by = "Species")
 #'   ks_report_xlsx(cmp, "report.xlsx")
+#'
+#'   # Auto-named output in a pinned folder
+#'   cmp2 <- ks_compare(
+#'     iris, iris, by = "Species",
+#'     options = ks_comp_options(path = tempfile("ksCompare_"))
+#'   )
+#'   ks_report_xlsx(cmp2)
 #' }
 #' @export
-ks_report_xlsx <- function(x, path, highlight = TRUE, threshold = 0) {
+ks_report_xlsx <- function(x, path = NULL, highlight = TRUE, threshold = 0) {
   ks_assert_comparison(x)
   ks_check_installed("openxlsx2", reason = "for ks_report_xlsx()")
 
@@ -95,6 +108,18 @@ ks_report_xlsx <- function(x, path, highlight = TRUE, threshold = 0) {
     ks_xlsx_highlight_dif(wb, out_dif, threshold = threshold)
   }
 
+  if (is.null(path)) {
+    path <- ks_default_report_path(x, ext = "xlsx")
+  } else {
+    if (!is.character(path) || length(path) != 1L || is.na(path)) {
+      ks_abort("{.arg path} must be {.code NULL} or a single file path.")
+    }
+    if (!nzchar(tools::file_ext(path))) {
+      path <- paste0(path, ".xlsx")
+    }
+    path <- ks_resolve_output_path(path, x)
+  }
+  ks_ensure_dir(dirname(path))
   openxlsx2::wb_save(wb, file = path, overwrite = TRUE)
   cli::cli_alert_success("Excel report written to {.file {path}}")
   invisible(path)
