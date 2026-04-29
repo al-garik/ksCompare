@@ -1,0 +1,67 @@
+url: https://ksCompare.github.io/ksCompare/
+
+template:
+  bootstrap: 5
+  bslib:
+    primary: "#4682b4"
+
+home:
+  title: ksCompare
+  description: Smart data frame comparison in the spirit of SAS PROC COMPARE.
+
+navbar:
+  structure:
+    left:  [intro, reference, articles, news]
+    right: [search, github]
+  components:
+    articles:
+      text: Articles
+      menu:
+      - text: Getting started
+        href: articles/getting-started.html
+      - text: From PROC COMPARE
+        href: articles/from-proc-compare.html
+      - text: Smart features
+        href: articles/smart-features.html
+      - text: Reports
+        href: articles/reports.html
+      - text: Pipeline gates
+        href: articles/pipeline-gates.html
+
+reference:
+- title: Compare
+  contents:
+  - ks_compare
+  - ks_tol
+  - ks_options
+- title: Inspect a comparison
+  contents:
+  - print.ks_comparison
+  - summary.ks_comparison
+  - as_tibble.ks_comparison
+  - ks_tidy
+  - ks_glance
+- title: SAS PROC COMPARE outputs
+  contents:
+  - as_outbase
+  - as_outcomp
+  - as_outdif
+  - as_outnoequal
+  - ks_sysinfo
+- title: Reports
+  contents:
+  - ks_report_html
+  - ks_report_xlsx
+- title: I/O
+  contents:
+  - ks_read_sas
+  - ks_read_xpt
+  - ks_read_arrow
+- title: Pipeline gates and interop
+  contents:
+  - ks_assert_clean
+  - ks_pointblank_step
+  - as_ks_comparison
+- title: Package
+  contents:
+  - ksCompare-package

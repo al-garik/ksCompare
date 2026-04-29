@@ -1,0 +1,85 @@
+---
+title: "From PROC COMPARE"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{From PROC COMPARE}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+library(ksCompare)
+```
+
+This article maps SAS `PROC COMPARE` syntax onto `ksCompare`. The goal is
+spirit-equivalence, not byte-identical output: `ksCompare` returns
+tibbles you can render however you like.
+
+## Cheat sheet
+
+| SAS                                 | ksCompare                                                 |
+|-------------------------------------|-----------------------------------------------------------|
+| `BASE = ds1`                        | `base = ds1`                                              |
+| `COMPARE = ds2`                     | `comp = ds2`                                              |
+| `ID v1 v2`                          | `by = c("v1", "v2")`                                      |
+| `BY v1 v2`                          | `by = c("v1", "v2")` (also covers BY-group reporting)     |
+| `VAR x y`                           | `mapping = c(x = "x", y = "y")`                           |
+| `WITH x2`                           | `mapping = c(x = "x2")`                                   |
+| `CRITERION = 1e-5`                  | `tolerance = ks_tol(abs = 1e-5)`                          |
+| `METHOD = RELATIVE` / `PERCENT`     | `tolerance = ks_tol(rel = 1e-5)`                          |
+| `METHOD = EXACT`                    | `tolerance = ks_tol()` (default, strict)                  |
+| (floating-point round-trip noise)   | `tolerance = ks_tol(ulp = 4)`                             |
+| `NOMISS`                            | `options = ks_options(na_equal = FALSE)`                  |
+| `OUT=`                              | `as_outbase()` / `as_outcomp()`                           |
+| `OUTDIF`                            | `as_outdif()`                                             |
+| `OUTNOEQUAL`                        | `as_outnoequal()`                                         |
+| `&SYSINFO` bitmask                  | `ks_sysinfo()`                                            |
+| `NOPRINT`                           | use the returned object directly; no auto-print           |
+| `LISTALL` / `LISTBASE` / `LISTCOMP` | rows are tagged in `cmp$row_diff$status`                  |
+
+## Row matching strategies
+
+| Situation                                  | ksCompare argument                  |
+|--------------------------------------------|-------------------------------------|
+| No keys, match by row position             | `by = NULL` (default)               |
+| Same key column on both sides              | `by = "USUBJID"`                    |
+| Renamed key column                         | `by = c(USUBJID = "SUBJID")`        |
+| Discover the key automatically             | `by = "auto"`                       |
+| Duplicate keys: keep first occurrence      | `dup_keys = "first"` (default)      |
+| Duplicate keys: keep last occurrence       | `dup_keys = "last"`                 |
+| Duplicate keys: pair within group (1<->1)  | `dup_keys = "keep_all"`             |
+| Duplicate keys: cartesian product          | `dup_keys = "all_pairs"`            |
+| Duplicate keys: hard fail                  | `dup_keys = "error"`                |
+
+## OUT* outputs
+
+```{r}
+a <- data.frame(id = 1:3, x = c(1, 2, 3))
+b <- data.frame(id = 1:3, x = c(1, 2, 4))
+cmp <- ks_compare(a, b, by = "id")
+
+as_outbase(cmp)
+as_outcomp(cmp)
+as_outdif(cmp)
+as_outnoequal(cmp)
+```
+
+## SYSINFO bitmask
+
+```{r}
+si <- ks_sysinfo(cmp)
+si
+attr(si, "bits")
+```
+
+The bit names follow the SAS documentation; only flags with a clear
+correspondence in tibble-land are populated. Extra ksCompare findings
+(patterns, suggestions) live on the `ks_comparison` object directly.
+
+## Things ksCompare does not try to replicate
+
+- The fixed-width LISTING-style `PROC COMPARE` printout. Use
+  `print(cmp)`, `summary(cmp)`, or `ks_report_html(cmp)`.
+- `OUT=` data sets in PDV order. Output tibbles use a clean
+  long/wide layout that is easier to filter and join.

@@ -1,0 +1,189 @@
+---
+title: "Getting started with ksCompare"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with ksCompare}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+library(ksCompare)
+```
+
+`ksCompare` compares two data frames in the spirit of SAS `PROC COMPARE` —
+column-by-column, row-by-row, with tolerances and labelled-metadata
+awareness — and returns a structured `ks_comparison` object you can
+print, query, export, or render to HTML / Excel.
+
+## A first comparison
+
+```{r}
+base <- data.frame(
+  id   = 1:5,
+  age  = c(34, 41, 28, 55, 19),
+  arm  = c("A", "A", "B", "B", "A"),
+  stringsAsFactors = FALSE
+)
+comp <- data.frame(
+  id   = 1:5,
+  age  = c(34, 41, 27, 55, 19),
+  arm  = c("A", "A", "b", "B", "A"),
+  stringsAsFactors = FALSE
+)
+
+cmp <- ks_compare(base, comp, by = "id")
+cmp
+```
+
+`summary(cmp)` returns a structured object with per-section counts;
+`as_tibble(cmp)` returns the long-format value-diff table.
+
+```{r}
+summary(cmp)
+tibble::as_tibble(cmp) |> head()
+```
+
+## What's inside `cmp`?
+
+A `ks_comparison` is a list with named slots; you can read them
+directly when scripting QC dashboards:
+
+```{r}
+names(cmp)
+```
+
+- `cmp$schema_diff` -- one row per column pair (matched, base-only,
+  or comp-only) with `kind_match`, `label_match`, `format_match`.
+- `cmp$row_diff` -- one row per matched / unmatched row with
+  `key_id`, `base_row`, `comp_row`, `status`.
+- `cmp$value_diff` -- one row per differing cell with `kind`, `base`,
+  `comp`, `diff`, `note`. Same as `as_tibble(cmp)` and `ks_tidy(cmp)`.
+- `cmp$pattern_summary` -- recurring shapes per column (e.g.
+  `case_only`, `constant_offset`).
+- `cmp$column_suggestions` -- fuzzy rename candidates (when
+  `stringdist` is installed).
+- `cmp$meta` -- counts, key columns, and the row-matching strategy.
+- `cmp$manifest` -- input hashes + run timestamp for QC traceability.
+
+```{r}
+cmp$schema_diff
+cmp$value_diff
+ks_glance(cmp)
+```
+
+## Tolerances
+
+```{r}
+ks_compare(
+  data.frame(id = 1, x = 1.0),
+  data.frame(id = 1, x = 1.0001),
+  by = "id",
+  tolerance = ks_tol(abs = 1e-3)
+)
+```
+
+Per-column overrides:
+
+```{r, eval = FALSE}
+ks_tol(
+  abs = 0,
+  per_column = list(
+    weight = ks_tol(abs = 0.01),
+    height = ks_tol(rel = 0.001)
+  )
+)
+```
+
+ULP tolerance is useful when you only want to absorb floating-point
+round-trip noise:
+
+```{r, eval = FALSE}
+ks_compare(base, comp, by = "id", tolerance = ks_tol(ulp = 4))
+```
+
+## Options
+
+`ks_options()` controls semantics that apply to all columns:
+
+- `na_equal`: treat `NA == NA` as equal (default `TRUE`).
+- `sas_special_missing`: distinguish `.A`-`.Z` and `._` SAS missings
+  (haven-imported numerics only).
+- `compare_labels` / `compare_formats`: schema-level checks. Format
+  comparison is trailing-dot- and case-tolerant
+  (`DATE9.` == `DATE9` == `date9.`).
+- `str_trim`, `str_case`, `str_norm`: string normalisation. Strings
+  are always compared encoding-safely (Latin1 vs UTF-8 will not
+  produce false diffs).
+- `tz`: `"preserve"` (default), `"UTC"`, or `"strip"` for `POSIXct`.
+
+```{r, eval = FALSE}
+ks_compare(
+  base, comp, by = "id",
+  options = ks_options(str_trim = TRUE, str_case = "fold")
+)
+```
+
+## Renamed columns
+
+Use `mapping =` for renamed non-key columns and a named `by =` for a
+renamed key:
+
+```{r, eval = FALSE}
+ks_compare(
+  base, comp,
+  by      = c(USUBJID = "SUBJID"),
+  mapping = c(AGE = "AGE_YEARS")
+)
+```
+
+## Reading files directly
+
+`ks_compare()` accepts file paths in addition to in-memory data frames
+and dispatches the right reader by extension:
+
+```{r, eval = FALSE}
+# SAS transport file
+ks_compare("prod/adsl.xpt", "qc/adsl.xpt", by = "USUBJID")
+
+# .sas7bdat
+ks_compare("prod/adsl.sas7bdat", "qc/adsl.sas7bdat", by = "USUBJID")
+
+# Parquet / Feather
+ks_compare("a.parquet", "b.parquet", by = "id")
+
+# RDS / RData / CSV / TSV are also recognised
+ks_compare("a.rds", "b.rds", by = "id")
+```
+
+When both paths share the same basename (`prod/adsl.xpt` vs
+`qc/adsl.xpt`), display names are automatically disambiguated using
+the parent folder, so `print(cmp)` and the HTML report show
+`prod/adsl` vs `qc/adsl` instead of two identical labels.
+
+## Duplicate keys
+
+By default `dup_keys = "first"` keeps the first occurrence per side
+(emitting a `ksCompare_dup_keys_resolved` info message). Other
+strategies:
+
+- `"last"` -- keep the last per side.
+- `"keep_all"` -- pair duplicates positionally within each key.
+- `"all_pairs"` -- cartesian-pair duplicates (warns when group sizes
+  differ).
+- `"error"` -- raise on any duplicate key.
+
+```{r, eval = FALSE}
+ks_compare(base, comp, by = "id", dup_keys = "keep_all")
+```
+
+## Next steps
+
+- **From SAS:** see `vignette("from-proc-compare")` for a side-by-side
+  mapping of `PROC COMPARE` options.
+- **Smart features:** see `vignette("smart-features")` for auto-key
+  inference, fuzzy column suggestions, and pattern detection.
+- **Reports:** see `vignette("reports")` for HTML and Excel output.
+- **CI / pipelines:** see `vignette("pipeline-gates")` for using
+  comparisons as assertions.

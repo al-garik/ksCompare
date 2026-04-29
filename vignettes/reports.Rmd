@@ -1,0 +1,92 @@
+---
+title: "Reports"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Reports}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+library(ksCompare)
+```
+
+A `ks_comparison` can be exported to two report formats. Both are
+opt-in via `Suggests` packages so the core install stays small, and
+neither requires Quarto, Pandoc, or any internet access.
+
+## HTML
+
+```{r}
+cmp <- ks_compare(iris, iris, by = "Species")
+ks_report_html(
+  cmp,
+  "report.html",
+  title = "ADSL QC",
+  subtitle = "Study A1234"
+)
+```
+
+The HTML report uses `htmltools` for layout and `reactable` for
+filterable, searchable tables. Layout includes:
+
+- a sticky left-hand table of contents with section badges,
+- a status pill (Clean / Differences detected) in the header,
+- KPI cards summarising matched / unmatched rows and columns,
+- Schema, Key/Row diff, Value diff, Patterns, Suggestions, and
+  Manifest sections,
+- a print-friendly stylesheet.
+
+Pass `path = NULL` to get the assembled `htmltools::tagList()` for
+embedding in another document. Pass `theme = "slate"` for a neutral
+dark-header theme.
+
+### Smart sampling
+
+Large value-diff tables are capped at `max_rows` (default `2000`).
+Above the cap, the report renders a *stratified sample* covering
+each affected column and each distinct diff cause (`note`),
+prioritising the largest numeric magnitudes. A notice indicates the
+sample size and recommends `as_tibble(cmp)` for the full table
+(`as_tibble()` is never truncated).
+
+### Group by key
+
+Pass `group_by_key = TRUE` to render the value-diff section as one
+collapsed `<details>` block per key value, sorted by number of diffs
+(most-affected first). Useful for clinical reviews where you want to
+inspect "what changed for subject X" rather than scrolling a flat
+table.
+
+```{r}
+ks_report_html(cmp, "report.html", group_by_key = TRUE, max_groups = 100)
+```
+
+When `dup_keys = "keep_all"` or `"all_pairs"` was used in
+[ks_compare()], each key block also shows a *Pair* column so you can
+tell duplicate-row pairings apart. If no `by =` was supplied (row-
+position match), `group_by_key` is silently ignored.
+
+## Excel
+
+```{r}
+ks_report_xlsx(cmp, "report.xlsx")
+```
+
+Sheets:
+
+- `Summary` -- headline counts.
+- `Schema` -- per-column metadata diff.
+- `Suggestions` -- fuzzy column rename candidates (when
+  `stringdist` is installed).
+- `KeyDiff` -- matched / base-only / comp-only row counts.
+- `Values` -- long cell-level diff table.
+- `Patterns` -- detected recurring shapes.
+- `OUT_BASE`, `OUT_COMP`, `OUT_DIF`, `OUT_NOEQUAL` -- PROC COMPARE-
+  style wide outputs (see [as_outbase()] et al.).
+- `Manifest` -- input hashes, package version, run timestamp.
+
+Numeric `OUT_DIF` cells whose magnitude exceeds `threshold` (default
+`0`) are highlighted via openxlsx2 conditional formatting. Pass
+`highlight = FALSE` to suppress.

@@ -1,0 +1,45 @@
+Package: ksCompare
+Title: Smart Data Frame Comparison in the Spirit of SAS PROC COMPARE
+Version: 0.0.0.9000
+Authors@R: 
+    person("ksCompare", "authors", , "noreply@example.com", role = c("aut", "cre"))
+Description: A tidyverse-native engine for comparing two data frames in the
+    spirit of SAS 'PROC COMPARE', with extensions for clinical/pharma
+    workflows: per-column tolerances (absolute, relative, and ULP), smart
+    column matching, intelligent type reconciliation, SAS special-missing
+    awareness, diff-pattern detection, and rich HTML/Excel reports.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends:
+    R (>= 4.1)
+Imports:
+    cli,
+    digest,
+    dplyr,
+    glue,
+    rlang,
+    stringi,
+    tibble,
+    tidyselect,
+    vctrs
+Suggests:
+    arrow,
+    arsenal,
+    broom,
+    clue,
+    haven,
+    htmltools,
+    knitr,
+    openxlsx2,
+    pointblank,
+    reactable,
+    rmarkdown,
+    stringdist,
+    testthat (>= 3.0.0),
+    withr
+Config/testthat/edition: 3
+URL: https://github.com/ksCompare/ksCompare
+BugReports: https://github.com/ksCompare/ksCompare/issues
+VignetteBuilder: knitr
