@@ -5,10 +5,6 @@
 #' 2. Remaining columns are paired by exact name match.
 #' 3. Columns present on only one side become `base_only` / `comp_only`.
 #'
-#' Fuzzy / content-fingerprint matching is only ever surfaced as
-#' *suggestions* (see `ks_suggest_columns()`); it is never applied
-#' automatically.
-#'
 #' @param base,comp Data frames.
 #' @param mapping Optional named character vector. Names are column names in
 #'   `base`, values are column names in `comp`. May also be supplied as a
@@ -104,44 +100,64 @@ ks_schema_diff <- function(base, comp, alignment, options) {
   meta_b <- ks_frame_meta(base)
   meta_c <- ks_frame_meta(comp)
 
-  rows <- list()
+  do_labels  <- isTRUE(options$compare_labels)
+  do_formats <- isTRUE(options$compare_formats)
 
-  if (nrow(alignment$pairs) > 0L) {
-    for (i in seq_len(nrow(alignment$pairs))) {
-      bn <- alignment$pairs$base[[i]]
-      cn <- alignment$pairs$comp[[i]]
-      mb <- meta_b[meta_b$name == bn, , drop = FALSE]
-      mc <- meta_c[meta_c$name == cn, , drop = FALSE]
-      label_eq <- if (options$compare_labels) {
-        ks_attr_equal(mb$label, mc$label)
-      } else {
-        NA
-      }
-      format_eq <- if (options$compare_formats) {
-        ks_format_equal(mb$format_sas, mc$format_sas)
-      } else {
-        NA
-      }
-      rows[[length(rows) + 1L]] <- tibble::tibble(
+  n_pairs   <- nrow(alignment$pairs)
+  n_b_only  <- length(alignment$base_only)
+  n_c_only  <- length(alignment$comp_only)
+  rows <- vector("list", n_pairs + n_b_only + n_c_only)
+  ridx <- 0L
+
+  # Build name -> row-index lookups so we avoid O(n) scans on `meta$name`.
+  meta_b_idx <- if (nrow(meta_b) > 0L) {
+    stats::setNames(seq_len(nrow(meta_b)), meta_b$name)
+  } else {
+    integer()
+  }
+  meta_c_idx <- if (nrow(meta_c) > 0L) {
+    stats::setNames(seq_len(nrow(meta_c)), meta_c$name)
+  } else {
+    integer()
+  }
+
+  if (n_pairs > 0L) {
+    pair_b <- alignment$pairs$base
+    pair_c <- alignment$pairs$comp
+    for (i in seq_len(n_pairs)) {
+      bn <- pair_b[[i]]
+      cn <- pair_c[[i]]
+      ib <- meta_b_idx[[bn]]
+      ic <- meta_c_idx[[cn]]
+      mb_label  <- meta_b$label[[ib]]
+      mc_label  <- meta_c$label[[ic]]
+      mb_format <- meta_b$format_sas[[ib]]
+      mc_format <- meta_c$format_sas[[ic]]
+      mb_kind   <- meta_b$kind[[ib]]
+      mc_kind   <- meta_c$kind[[ic]]
+      label_eq <- if (do_labels) ks_attr_equal(mb_label, mc_label) else NA
+      format_eq <- if (do_formats) ks_format_equal(mb_format, mc_format) else NA
+      ridx <- ridx + 1L
+      rows[[ridx]] <- tibble::tibble(
         base = bn,
         comp = cn,
         side = "matched",
-        kind_base = mb$kind,
-        kind_comp = mc$kind,
-        kind_match = identical(mb$kind, mc$kind),
-        label_base = mb$label,
-        label_comp = mc$label,
+        kind_base = mb_kind,
+        kind_comp = mc_kind,
+        kind_match = identical(mb_kind, mc_kind),
+        label_base = mb_label,
+        label_comp = mc_label,
         label_match = label_eq,
         label_diff = if (isFALSE(label_eq)) {
-          ks_attr_diff_note(mb$label, mc$label)
+          ks_attr_diff_note(mb_label, mc_label)
         } else {
           NA_character_
         },
-        format_base = mb$format_sas,
-        format_comp = mc$format_sas,
+        format_base = mb_format,
+        format_comp = mc_format,
         format_match = format_eq,
         format_diff = if (isFALSE(format_eq)) {
-          ks_format_diff_note(mb$format_sas, mc$format_sas)
+          ks_format_diff_note(mb_format, mc_format)
         } else {
           NA_character_
         }
@@ -150,43 +166,47 @@ ks_schema_diff <- function(base, comp, alignment, options) {
   }
 
   for (nm in alignment$base_only) {
-    rows[[length(rows) + 1L]] <- tibble::tibble(
+    ib <- meta_b_idx[[nm]]
+    ridx <- ridx + 1L
+    rows[[ridx]] <- tibble::tibble(
       base = nm,
       comp = NA_character_,
       side = "base_only",
-      kind_base = meta_b$kind[meta_b$name == nm],
+      kind_base = meta_b$kind[[ib]],
       kind_comp = NA_character_,
       kind_match = NA,
-      label_base = meta_b$label[meta_b$name == nm],
+      label_base = meta_b$label[[ib]],
       label_comp = NA_character_,
       label_match = NA,
       label_diff = NA_character_,
-      format_base = meta_b$format_sas[meta_b$name == nm],
+      format_base = meta_b$format_sas[[ib]],
       format_comp = NA_character_,
       format_match = NA,
       format_diff = NA_character_
     )
   }
   for (nm in alignment$comp_only) {
-    rows[[length(rows) + 1L]] <- tibble::tibble(
+    ic <- meta_c_idx[[nm]]
+    ridx <- ridx + 1L
+    rows[[ridx]] <- tibble::tibble(
       base = NA_character_,
       comp = nm,
       side = "comp_only",
       kind_base = NA_character_,
-      kind_comp = meta_c$kind[meta_c$name == nm],
+      kind_comp = meta_c$kind[[ic]],
       kind_match = NA,
       label_base = NA_character_,
-      label_comp = meta_c$label[meta_c$name == nm],
+      label_comp = meta_c$label[[ic]],
       label_match = NA,
       label_diff = NA_character_,
       format_base = NA_character_,
-      format_comp = meta_c$format_sas[meta_c$name == nm],
+      format_comp = meta_c$format_sas[[ic]],
       format_match = NA,
       format_diff = NA_character_
     )
   }
 
-  if (length(rows) == 0L) {
+  if (ridx == 0L) {
     return(tibble::tibble(
       base = character(),
       comp = character(),
@@ -204,7 +224,7 @@ ks_schema_diff <- function(base, comp, alignment, options) {
       format_diff = character()
     ))
   }
-  vctrs::vec_rbind(!!!rows)
+  vctrs::vec_rbind(!!!rows[seq_len(ridx)])
 }
 
 #' Internal: tolerant equality for textual attributes (label, format)

@@ -28,7 +28,7 @@ Invisibly returns \code{path}.
 }
 \description{
 Writes a multi-sheet workbook summarising a \code{ks_comparison}. Sheets:
-\code{Summary}, \code{Schema}, \code{Suggestions}, \code{KeyDiff}, \code{Values}, \code{Patterns},
+\code{Summary}, \code{Schema}, \code{KeyDiff}, \code{Values}, \code{Patterns},
 \code{OUT_BASE}, \code{OUT_COMP}, \code{OUT_DIF}, \code{OUT_NOEQUAL}, \code{Manifest}. Cells with
 value differences are highlighted on the wide \code{OUT_DIF} sheet.
 }

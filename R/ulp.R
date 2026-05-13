@@ -56,23 +56,18 @@ ks_ulp_distance <- function(x, y) {
 #' @keywords internal
 #' @noRd
 ks_double_as_ordered <- function(v) {
-  vapply(
-    v,
-    function(z) {
-      raw <- writeBin(as.double(z), raw(), endian = "little")
-      bytes <- as.integer(raw)
-      # Little-endian: byte 8 (index 8) holds sign + top 7 bits of exponent.
-      sign_bit <- bitwShiftR(bytes[8], 7L)
-      # Magnitude bytes: clear sign bit on highest byte.
-      bytes[8] <- bytes[8] - sign_bit * 128L
-      mag <- 0
-      for (i in 8:1) {
-        mag <- mag * 256 + bytes[i]
-      }
-      if (sign_bit == 0L) mag else -(mag + 1)
-    },
-    numeric(1L)
-  )
+  n <- length(v)
+  if (n == 0L) return(numeric(0L))
+  # One bulk writeBin then reshape to an 8-row byte matrix (column = element).
+  raw_bytes <- writeBin(as.double(v), raw(), endian = "little")
+  m <- matrix(as.integer(raw_bytes), nrow = 8L, ncol = n)
+  # Little-endian: row 8 carries sign bit (top bit) + top 7 exponent bits.
+  sign_bit <- bitwShiftR(m[8L, ], 7L)
+  m[8L, ] <- m[8L, ] - sign_bit * 128L
+  # Build magnitude in double space: mag = sum(bytes[i] * 256^(i-1)).
+  weights <- 256 ^ (0:7)
+  mag <- as.numeric(weights %*% m)
+  ifelse(sign_bit == 0L, mag, -(mag + 1))
 }
 
 #' Internal: numeric equality including ULP tolerance

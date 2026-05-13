@@ -12,10 +12,12 @@ ks_compare(
   tolerance = ks_tol(),
   coerce = c("safe", "strict", "lossy"),
   dup_keys = c("first", "last", "keep_all", "all_pairs", "error"),
-  allow_fuzzy_columns = FALSE,
   options = ks_comp_options(),
   base_name = NULL,
-  comp_name = NULL
+  comp_name = NULL,
+  find_patterns = FALSE,
+  n_first_last = 5L,
+  max_unmatched_rows = 100L
 )
 }
 \arguments{
@@ -82,11 +84,6 @@ disagree.
 \item \code{"error"}: raise on any duplicate key.
 }}
 
-\item{allow_fuzzy_columns}{Reserved for future use; must be \code{FALSE}.
-Fuzzy column rename \emph{suggestions} are always returned on
-\code{cmp$column_suggestions} (when \code{stringdist} is installed) but are
-never applied silently.}
-
 \item{options}{A \code{\link[=ks_comp_options]{ks_comp_options()}} specification controlling NA /
 SAS special-missing semantics, label / format comparison, string
 normalisation, and the default output folder for reports.}
@@ -94,6 +91,30 @@ normalisation, and the default output folder for reports.}
 \item{base_name, comp_name}{Optional display names for the two frames
 (used in \code{print()} and reports). Default to the names of the
 supplied expressions.}
+
+\item{find_patterns}{Logical (default \code{FALSE}). When \code{TRUE}, run the
+pattern-detection pass (constant offsets, sign flips, unit
+rescales, epoch shifts, etc.) and populate \code{cmp$pattern_summary}.
+The detectors iterate over every column with a diff and can be
+noticeably slow on large value-diff tables, so they are off by
+default. When \code{FALSE}, \code{cmp$pattern_summary} is an empty tibble
+with the usual column layout.}
+
+\item{n_first_last}{Non-negative integer (default \code{5}). Per matched
+column with at least one cell diff, capture the first and last
+\code{n_first_last} differences in \code{key_id} order on
+\code{cmp$first_last_unequal}. Mirrors the \emph{First / Last N Obs With
+Some Compared Variables Unequal} tables of SAS \verb{PROC COMPARE}.
+Set to \code{0} to skip.}
+
+\item{max_unmatched_rows}{Non-negative integer (default \code{100}).
+Cap on how many full base-only / comp-only rows are stored on
+\code{cmp$unmatched_rows} for inspection (and surfaced by
+\code{\link[=ks_unmatched_rows]{ks_unmatched_rows()}} / the HTML / XLSX reports). The cap is
+apportioned proportionally between the two sides; truncation is
+recorded on the result's \code{truncated} and \code{n_total} attributes.
+Set to \code{0} to skip storing the row data entirely (the row counts
+on \code{cmp$key_diff} and \code{summary()} are unaffected).}
 }
 \value{
 A \code{ks_comparison} object with components:
@@ -101,13 +122,18 @@ A \code{ks_comparison} object with components:
 \item \code{meta}: counts, keys, matching strategy, row-key lookup table.
 \item \code{schema_diff}: one row per matched / unmatched column with kind
 / label / format comparison.
-\item \code{column_suggestions}: fuzzy rename candidates (or empty).
 \item \code{key_diff}: counts of matched / base-only / comp-only rows.
 \item \code{row_diff}: long table of \code{key_id}, \code{base_row}, \code{comp_row},
 \code{status}.
 \item \code{value_diff}: long table of differing cells with \code{column_base},
 \code{column_comp}, \code{kind}, \code{base}, \code{comp}, \code{diff}, \code{note}.
-\item \code{pattern_summary}: detected recurring shapes per column.
+\item \code{pattern_summary}: detected recurring shapes per column (only
+populated when \code{find_patterns = TRUE}; otherwise an empty
+tibble with the standard column layout).
+\item \code{unmatched_rows}: full base-only / comp-only rows (capped by
+\code{max_unmatched_rows}); see \code{\link[=ks_unmatched_rows]{ks_unmatched_rows()}}.
+\item \code{first_last_unequal}: per-column first / last \code{n_first_last}
+differing observations in \code{key_id} order (PROC COMPARE-style).
 \item \code{options}, \code{tolerance}: the inputs (echoed for the manifest).
 \item \code{manifest}: input hashes + run metadata.
 }

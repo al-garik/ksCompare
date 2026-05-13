@@ -1,3 +1,29 @@
+# ksCompare 0.2.0
+
+## Performance
+
+* Row matching for duplicate-key strategies `keep_all` and `all_pairs`
+  (`ks_match_rows_keep_all()`, `ks_match_rows_all_pairs()`) now
+  pre-allocates the per-group parts list and caches the level factor
+  used for splitting, removing O(n^2) list-copy churn on data sets with
+  many unique keys.
+* The main comparison loop in `ks_compare()` now pre-allocates the
+  `value_parts` accumulator and uses `order(..., method = "radix")` for
+  the final stable sort of `value_diff`, materially speeding up wide
+  comparisons (many matched column pairs) and large diff tables.
+* `ks_schema_diff()` no longer rescans `meta_b$name` / `meta_c$name` for
+  every column pair; it builds a name-indexed lookup once and reuses
+  per-row metadata, and it hoists the `compare_labels` / `compare_formats`
+  option checks out of the per-column loop.
+* `ks_value_diff_one()` now slices the unequal cells once and reuses the
+  result for `ks_explain_diffs()`, `format_cell()`, and `ks_na_flow()`,
+  avoiding three redundant subsets on large columns; the type-mismatch
+  branch likewise slices `base_col` / `comp_col` only once.
+
+## Internal
+
+* No user-facing API changes; all optimisations are behaviour-preserving.
+
 # ksCompare 0.1.0
 
 * Initial development release. ksCompare is a tidyverse-native engine for

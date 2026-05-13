@@ -40,7 +40,7 @@ case-tolerant, so \code{DATE9.}, \code{DATE9}, and \code{date9.} all compare as
 equal.}
 
 \item{str_trim}{Trim leading/trailing whitespace with
-\code{\link[stringi:stri_trim]{stringi::stri_trim_both()}} before comparing strings? Default
+\code{\link[stringi:stri_trim_both]{stringi::stri_trim_both()}} before comparing strings? Default
 \code{FALSE}. Useful when one source has been padded by a fixed-width
 exporter.}
 

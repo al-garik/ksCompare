@@ -146,19 +146,20 @@ ks_build_row_keys <- function(row_diff, base, comp, keys) {
     }
     key_vals[[j]] <- out
   }
-  # Render labels: "name = value" for single key, "v1 | v2" for composite.
-  labels <- vapply(seq_len(n), function(i) {
-    parts <- vapply(seq_along(keys$base), function(j) {
-      v <- key_vals[[j]][i]
-      vs <- if (is.na(v)) "<NA>" else format(v, trim = TRUE)
-      if (length(keys$base) == 1L) {
-        sprintf("%s = %s", keys$base[[j]], vs)
-      } else {
-        sprintf("%s = %s", keys$base[[j]], vs)
-      }
-    }, character(1L))
-    paste(parts, collapse = " | ")
-  }, character(1L))
+  # Render labels: "name = value" per key column, joined with " | " for
+  # composite keys. Vectorize: format() each key column once, then paste.
+  formatted <- vector("list", length(keys$base))
+  for (j in seq_along(keys$base)) {
+    v <- key_vals[[j]]
+    fv <- format(v, trim = TRUE)
+    fv[is.na(v)] <- "<NA>"
+    formatted[[j]] <- paste0(keys$base[[j]], " = ", fv)
+  }
+  labels <- if (length(formatted) == 1L) {
+    formatted[[1L]]
+  } else {
+    do.call(paste, c(formatted, sep = " | "))
+  }
 
   # Compute pair_rank / pair_total within key_label groups, preserving the
   # original row_diff order within each group.

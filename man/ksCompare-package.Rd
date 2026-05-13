@@ -61,5 +61,10 @@ Useful links:
 \author{
 \strong{Maintainer}: ksCompare authors \email{noreply@example.com}
 
+Authors:
+\itemize{
+  \item ksCompare authors \email{noreply@example.com}
+}
+
 }
 \keyword{internal}

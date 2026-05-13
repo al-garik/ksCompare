@@ -1,3 +1,10 @@
+# Pattern detection is opt-in via `find_patterns = TRUE` since v >=
+# (this release). Wrap `ks_compare()` for the whole file so each
+# pattern-specific test exercises the detector by default.
+ks_compare <- function(..., find_patterns = TRUE) {
+  ksCompare::ks_compare(..., find_patterns = find_patterns)
+}
+
 test_that("constant offset is detected", {
   a <- data.frame(id = 1:5, x = c(1, 2, 3, 4, 5))
   b <- data.frame(id = 1:5, x = c(2, 3, 4, 5, 6))

@@ -1,7 +1,7 @@
 #' Render an Excel workbook report
 #'
 #' Writes a multi-sheet workbook summarising a `ks_comparison`. Sheets:
-#' `Summary`, `Schema`, `Suggestions`, `KeyDiff`, `Values`, `Patterns`,
+#' `Summary`, `Schema`, `KeyDiff`, `Values`, `Patterns`,
 #' `OUT_BASE`, `OUT_COMP`, `OUT_DIF`, `OUT_NOEQUAL`, `Manifest`. Cells with
 #' value differences are highlighted on the wide `OUT_DIF` sheet.
 #'
@@ -78,10 +78,13 @@ ks_report_xlsx <- function(x, path = NULL, highlight = TRUE, threshold = 0) {
 
   add_sheet("Summary", summary_df)
   add_sheet("Schema", x$schema_diff)
-  add_sheet("Suggestions", x$column_suggestions %||% tibble::tibble())
   add_sheet("KeyDiff", x$key_diff)
   add_sheet("Values", x$value_diff)
+  add_sheet("DiffCauses", tryCatch(ks_cause_summary(x), error = function(e) tibble::tibble()))
+  add_sheet("RowHotspots", tryCatch(ks_row_diff_summary(x), error = function(e) tibble::tibble()))
   add_sheet("Patterns", x$pattern_summary %||% tibble::tibble())
+  add_sheet("UnmatchedRows", x$unmatched_rows %||% tibble::tibble())
+  add_sheet("FirstLastUnequal", x$first_last_unequal %||% tibble::tibble())
 
   out_base <- try(as_outbase(x), silent = TRUE)
   out_comp <- try(as_outcomp(x), silent = TRUE)

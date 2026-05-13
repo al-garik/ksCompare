@@ -9,7 +9,7 @@ ks_report_html(
   path = NULL,
   title = "ksCompare report",
   subtitle = NULL,
-  max_rows = 2000L,
+  max_rows = 100L,
   theme = c("default", "slate"),
   group_by_key = FALSE,
   max_groups = 200L
@@ -37,10 +37,11 @@ resolved relative to \code{options$path} when that has been set on
 
 \item{subtitle}{Optional subtitle (e.g. study identifier or run id).}
 
-\item{max_rows}{Per-table row cap (default \code{2000}). When the value-diff
+\item{max_rows}{Per-table row cap (default \code{100}). When the value-diff
 table exceeds this cap, the report shows a \emph{smart stratified sample}
 covering each column and each distinct diff-cause (\code{note}), prioritising
-the largest numeric magnitudes; a notice indicates the sample size and
+the largest numeric magnitudes (at least one example per column and per
+cause is always retained). A notice indicates the sample size and
 recommends \code{as_tibble(cmp)} for the full set. \code{as_tibble(x)} is never
 truncated.}
 
@@ -72,7 +73,7 @@ are required.
 \details{
 Layout: a left-hand sticky table of contents, a header with dataset
 names, a status pill, KPI cards, then sections for schema, row diff,
-value diff, patterns, suggestions, and the run manifest. Tables use
+value diff, patterns, and the run manifest. Tables use
 friendly column labels, column groups, and \code{tick}/\code{cross} markers
 instead of raw \code{TRUE}/\code{FALSE}.
 }

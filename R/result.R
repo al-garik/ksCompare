@@ -7,11 +7,12 @@
 new_ks_comparison <- function(
   meta,
   schema_diff,
-  column_suggestions,
   key_diff,
   row_diff,
   value_diff,
   pattern_summary,
+  unmatched_rows = NULL,
+  first_last_unequal = NULL,
   options,
   tolerance,
   manifest
@@ -20,11 +21,12 @@ new_ks_comparison <- function(
     list(
       meta = meta,
       schema_diff = schema_diff,
-      column_suggestions = column_suggestions,
       key_diff = key_diff,
       row_diff = row_diff,
       value_diff = value_diff,
       pattern_summary = pattern_summary,
+      unmatched_rows = unmatched_rows,
+      first_last_unequal = first_last_unequal,
       options = options,
       tolerance = tolerance,
       manifest = manifest
@@ -103,6 +105,36 @@ print.ks_comparison_summary <- function(x, ...) {
 print.ks_comparison <- function(x, ...) {
   s <- summary(x)
   cli::cli_h1("ksCompare comparison")
+  verdict <- tryCatch(ks_executive_verdict(x), error = function(e) NULL)
+  if (!is.null(verdict)) {
+    sev <- verdict$severity %||% "ok"
+    if (identical(sev, "critical")) {
+      cli::cli_alert_danger("{.strong Verdict}: {verdict$headline}")
+    } else if (identical(sev, "warn")) {
+      cli::cli_alert_warning("{.strong Verdict}: {verdict$headline}")
+    } else {
+      cli::cli_alert_info("{.strong Verdict}: {verdict$headline}")
+    }
+  }
+  recs <- tryCatch(ks_recommendations(x), error = function(e) NULL)
+  if (!is.null(recs) && nrow(recs) > 0L) {
+    crit <- recs[recs$severity %in% c("critical", "warn"), , drop = FALSE]
+    if (nrow(crit) > 0L) {
+      cli::cli_h2("Recommendations")
+      for (i in seq_len(nrow(crit))) {
+        msg <- crit$message[[i]]
+        ttl <- crit$title[[i]]
+        if (identical(crit$severity[[i]], "critical")) {
+          cli::cli_alert_danger("{.strong {ttl}} \u2014 {msg}")
+        } else {
+          cli::cli_alert_warning("{.strong {ttl}} \u2014 {msg}")
+        }
+        if (!is.na(crit$action[[i]])) {
+          cli::cli_alert_info("Next: {crit$action[[i]]}")
+        }
+      }
+    }
+  }
   cli::cli_dl(c(
     "Base" = "{.field {x$meta$base_name}} ({x$meta$n_base_rows} \u00d7 {x$meta$n_base_cols})",
     "Comp" = "{.field {x$meta$comp_name}} ({x$meta$n_comp_rows} \u00d7 {x$meta$n_comp_cols})",
@@ -181,6 +213,17 @@ print.ks_comparison <- function(x, ...) {
     "*" = "Base-only: {.val {s$n_base_only_rows}}",
     "*" = "Comp-only: {.val {s$n_comp_only_rows}}"
   ))
+  if (s$n_base_only_rows + s$n_comp_only_rows > 0L) {
+    ur_attr <- attr(x$unmatched_rows, "truncated")
+    truncated <- !is.null(ur_attr) && any(ur_attr, na.rm = TRUE)
+    cli::cli_bullets(c(
+      "i" = if (truncated) {
+        "Inspect unmatched rows with {.code ks_unmatched_rows(cmp)} (capped \u2014 raise {.arg max_unmatched_rows})."
+      } else {
+        "Inspect unmatched rows with {.code ks_unmatched_rows(cmp)}."
+      }
+    ))
+  }
 
   cli::cli_h2("Values")
   if (s$n_value_diffs == 0L) {
@@ -218,48 +261,66 @@ print.ks_comparison <- function(x, ...) {
     }
   }
 
-  if (!is.null(x$column_suggestions) && nrow(x$column_suggestions) > 0L) {
-    cli::cli_h2("Column rename suggestions")
-    sug <- x$column_suggestions
-    for (i in seq_len(nrow(sug))) {
-      cli::cli_bullets(c(
-        "i" = "{.val {sug$base[[i]]}} \u21d4 {.val {sug$comp[[i]]}} (score {round(sug$score[[i]], 2)})"
-      ))
-    }
-    cli::cli_alert_info(
-      "Pass these to {.arg mapping} if you want them treated as matched."
-    )
-  }
-
   invisible(x)
 }
 
 #' Tidy a ks_comparison
 #'
 #' Returns the long-format cell-level diff table. Equivalent to
-#' `as_tibble(cmp)` and identical to `cmp$value_diff`. The result has
-#' one row per differing cell with columns:
-#' `key_id`, `column_base`, `column_comp`, `kind`, `base`, `comp`,
-#' `diff`, `note`.
+#' `as_tibble(cmp)` and identical to `cmp$value_diff` when
+#' `include_unmatched = FALSE`.
+#'
+#' When `include_unmatched = TRUE`, rows describing observations
+#' present on only one side of the comparison are appended to the
+#' result with `kind = "base_only"` / `"comp_only"` and `column_base`
+#' / `column_comp` set to `NA`. One row is added per unmatched
+#' observation, capped at `ks_compare(max_unmatched_rows = ...)`.
 #'
 #' @param x A `ks_comparison`.
+#' @param include_unmatched Logical (default `FALSE`). When `TRUE`,
+#'   append base-only / comp-only rows from `cmp$unmatched_rows`.
 #' @param ... Unused.
-#' @return A tibble of value differences.
+#' @return A tibble of value differences, optionally with appended
+#'   unmatched-row markers. Has columns `key_id`, `base_row`,
+#'   `comp_row`, `column_base`, `column_comp`, `kind`, `base`, `comp`,
+#'   `diff`, `na_flow`, `note`.
 #' @export
 #' @examples
 #' cmp <- ks_compare(
 #'   data.frame(id = 1:2, x = c(1, 2)),
-#'   data.frame(id = 1:2, x = c(1, 3)),
+#'   data.frame(id = 1:3, x = c(1, 3, 4)),
 #'   by = "id"
 #' )
 #' ks_tidy(cmp)
+#' ks_tidy(cmp, include_unmatched = TRUE)
 ks_tidy <- function(x, ...) {
   UseMethod("ks_tidy")
 }
 
 #' @export
-ks_tidy.ks_comparison <- function(x, ...) {
-  x$value_diff
+ks_tidy.ks_comparison <- function(x, include_unmatched = FALSE, ...) {
+  vd <- x$value_diff
+  if (!isTRUE(include_unmatched)) {
+    return(vd)
+  }
+  ur <- x$unmatched_rows
+  if (is.null(ur) || nrow(ur) == 0L) {
+    return(vd)
+  }
+  add <- tibble::tibble(
+    key_id = ur$key_id,
+    base_row = ur$base_row,
+    comp_row = ur$comp_row,
+    column_base = NA_character_,
+    column_comp = NA_character_,
+    kind = ur$side,
+    base = NA_character_,
+    comp = NA_character_,
+    diff = NA_real_,
+    na_flow = NA_character_,
+    note = ur$key_label %||% NA_character_
+  )
+  vctrs::vec_rbind(vd, add)
 }
 
 #' Glance at a ks_comparison

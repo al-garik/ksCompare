@@ -74,28 +74,50 @@
 #'     `ksCompare_all_pairs_cardinality` warning when group sizes
 #'     disagree.
 #'   - `"error"`: raise on any duplicate key.
-#' @param allow_fuzzy_columns Reserved for future use; must be `FALSE`.
-#'   Fuzzy column rename *suggestions* are always returned on
-#'   `cmp$column_suggestions` (when `stringdist` is installed) but are
-#'   never applied silently.
 #' @param options A [ks_comp_options()] specification controlling NA /
 #'   SAS special-missing semantics, label / format comparison, string
 #'   normalisation, and the default output folder for reports.
 #' @param base_name,comp_name Optional display names for the two frames
 #'   (used in `print()` and reports). Default to the names of the
 #'   supplied expressions.
+#' @param find_patterns Logical (default `FALSE`). When `TRUE`, run the
+#'   pattern-detection pass (constant offsets, sign flips, unit
+#'   rescales, epoch shifts, etc.) and populate `cmp$pattern_summary`.
+#'   The detectors iterate over every column with a diff and can be
+#'   noticeably slow on large value-diff tables, so they are off by
+#'   default. When `FALSE`, `cmp$pattern_summary` is an empty tibble
+#'   with the usual column layout.
+#' @param n_first_last Non-negative integer (default `5`). Per matched
+#'   column with at least one cell diff, capture the first and last
+#'   `n_first_last` differences in `key_id` order on
+#'   `cmp$first_last_unequal`. Mirrors the *First / Last N Obs With
+#'   Some Compared Variables Unequal* tables of SAS `PROC COMPARE`.
+#'   Set to `0` to skip.
+#' @param max_unmatched_rows Non-negative integer (default `100`).
+#'   Cap on how many full base-only / comp-only rows are stored on
+#'   `cmp$unmatched_rows` for inspection (and surfaced by
+#'   [ks_unmatched_rows()] / the HTML / XLSX reports). The cap is
+#'   apportioned proportionally between the two sides; truncation is
+#'   recorded on the result's `truncated` and `n_total` attributes.
+#'   Set to `0` to skip storing the row data entirely (the row counts
+#'   on `cmp$key_diff` and `summary()` are unaffected).
 #'
 #' @return A `ks_comparison` object with components:
 #'   - `meta`: counts, keys, matching strategy, row-key lookup table.
 #'   - `schema_diff`: one row per matched / unmatched column with kind
 #'     / label / format comparison.
-#'   - `column_suggestions`: fuzzy rename candidates (or empty).
 #'   - `key_diff`: counts of matched / base-only / comp-only rows.
 #'   - `row_diff`: long table of `key_id`, `base_row`, `comp_row`,
 #'     `status`.
 #'   - `value_diff`: long table of differing cells with `column_base`,
 #'     `column_comp`, `kind`, `base`, `comp`, `diff`, `note`.
-#'   - `pattern_summary`: detected recurring shapes per column.
+#'   - `pattern_summary`: detected recurring shapes per column (only
+#'     populated when `find_patterns = TRUE`; otherwise an empty
+#'     tibble with the standard column layout).
+#'   - `unmatched_rows`: full base-only / comp-only rows (capped by
+#'     `max_unmatched_rows`); see [ks_unmatched_rows()].
+#'   - `first_last_unequal`: per-column first / last `n_first_last`
+#'     differing observations in `key_id` order (PROC COMPARE-style).
 #'   - `options`, `tolerance`: the inputs (echoed for the manifest).
 #'   - `manifest`: input hashes + run metadata.
 #'
@@ -134,27 +156,37 @@ ks_compare <- function(
   tolerance = ks_tol(),
   coerce = c("safe", "strict", "lossy"),
   dup_keys = c("first", "last", "keep_all", "all_pairs", "error"),
-  allow_fuzzy_columns = FALSE,
   options = ks_comp_options(),
   base_name = NULL,
-  comp_name = NULL
+  comp_name = NULL,
+  find_patterns = FALSE,
+  n_first_last = 5L,
+  max_unmatched_rows = 100L
 ) {
   base_label <- rlang::as_label(rlang::enexpr(base))
   comp_label <- rlang::as_label(rlang::enexpr(comp))
 
   coerce <- rlang::arg_match(coerce)
   dup_keys <- rlang::arg_match(dup_keys)
-  if (!isFALSE(allow_fuzzy_columns)) {
-    ks_abort(
-      "{.arg allow_fuzzy_columns} is reserved for a future release; must be {.code FALSE}."
-    )
-  }
   if (!inherits(tolerance, "ks_tol")) {
     ks_abort("{.arg tolerance} must be created with {.fn ks_tol}.")
   }
   if (!inherits(options, "ks_comp_options")) {
     ks_abort("{.arg options} must be created with {.fn ks_comp_options}.")
   }
+  if (!is.logical(find_patterns) || length(find_patterns) != 1L || is.na(find_patterns)) {
+    ks_abort("{.arg find_patterns} must be a single {.code TRUE} or {.code FALSE}.")
+  }
+  if (!is.numeric(n_first_last) || length(n_first_last) != 1L ||
+      is.na(n_first_last) || n_first_last < 0) {
+    ks_abort("{.arg n_first_last} must be a single non-negative integer.")
+  }
+  n_first_last <- as.integer(n_first_last)
+  if (!is.numeric(max_unmatched_rows) || length(max_unmatched_rows) != 1L ||
+      is.na(max_unmatched_rows) || max_unmatched_rows < 0) {
+    ks_abort("{.arg max_unmatched_rows} must be a single non-negative integer.")
+  }
+  max_unmatched_rows <- as.integer(max_unmatched_rows)
 
   base <- ks_load_input(base, arg_name = "base")
   comp <- ks_load_input(comp, arg_name = "comp")
@@ -171,7 +203,6 @@ ks_compare <- function(
 
   alignment <- ks_align_columns(base, comp, mapping = mapping)
   schema_diff <- ks_schema_diff(base, comp, alignment, options)
-  suggestions <- ks_suggest_columns(base, comp, alignment)
   keys <- ks_resolve_by(base, comp, by)
   match_result <- ks_match_rows(base, comp, keys, dup_keys = dup_keys)
   row_diff <- match_result$row_diff
@@ -180,14 +211,20 @@ ks_compare <- function(
   row_keys <- ks_build_row_keys(row_diff, base, comp, keys)
 
   # Compute value diffs over matched columns.
-  value_parts <- list()
-  if (nrow(alignment$pairs) > 0L && nrow(row_diff) > 0L) {
-    for (i in seq_len(nrow(alignment$pairs))) {
-      bn <- alignment$pairs$base[[i]]
-      cn <- alignment$pairs$comp[[i]]
+  n_pairs <- nrow(alignment$pairs)
+  value_parts <- vector("list", n_pairs)
+  vp_idx <- 0L
+  if (n_pairs > 0L && nrow(row_diff) > 0L) {
+    key_base <- keys$base
+    key_comp <- keys$comp
+    pair_b <- alignment$pairs$base
+    pair_c <- alignment$pairs$comp
+    for (i in seq_len(n_pairs)) {
+      bn <- pair_b[[i]]
+      cn <- pair_c[[i]]
       # Skip key columns from value-diff (they always match by construction
       # when keyed; show as separate diagnostics if they were renamed).
-      if (bn %in% keys$base && cn %in% keys$comp) {
+      if (bn %in% key_base && cn %in% key_comp) {
         next
       }
       part <- ks_value_diff_one(
@@ -200,24 +237,35 @@ ks_compare <- function(
         options = options
       )
       if (nrow(part) > 0L) {
-        value_parts[[length(value_parts) + 1L]] <- part
+        vp_idx <- vp_idx + 1L
+        value_parts[[vp_idx]] <- part
       }
     }
   }
 
-  value_diff <- if (length(value_parts) == 0L) {
+  value_diff <- if (vp_idx == 0L) {
     ks_empty_value_diff()
   } else {
-    vctrs::vec_rbind(!!!value_parts)
+    vctrs::vec_rbind(!!!value_parts[seq_len(vp_idx)])
   }
 
   # Stable ordering for reproducibility.
   if (nrow(value_diff) > 0L) {
-    ord <- order(value_diff$column_base, value_diff$key_id)
+    ord <- order(value_diff$column_base, value_diff$key_id, method = "radix")
     value_diff <- value_diff[ord, , drop = FALSE]
   }
 
-  pattern_summary <- ks_detect_patterns(value_diff)
+  pattern_summary <- if (isTRUE(find_patterns)) {
+    ks_detect_patterns(value_diff)
+  } else {
+    ks_empty_pattern_summary()
+  }
+
+  unmatched_rows <- ks_build_unmatched_rows(
+    row_diff, base, comp, row_keys,
+    max_rows = max_unmatched_rows
+  )
+  first_last_unequal <- ks_build_first_last_unequal(value_diff, n = n_first_last)
 
   meta <- list(
     base_name = base_name,
@@ -247,7 +295,6 @@ ks_compare <- function(
   new_ks_comparison(
     meta = meta,
     schema_diff = schema_diff,
-    column_suggestions = suggestions,
     key_diff = tibble::tibble(
       base_only = sum(row_diff$status == "base_only"),
       comp_only = sum(row_diff$status == "comp_only"),
@@ -256,6 +303,8 @@ ks_compare <- function(
     row_diff = row_diff,
     value_diff = value_diff,
     pattern_summary = pattern_summary,
+    unmatched_rows = unmatched_rows,
+    first_last_unequal = first_last_unequal,
     options = options,
     tolerance = tolerance,
     manifest = manifest

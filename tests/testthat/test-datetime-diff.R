@@ -40,7 +40,7 @@ test_that("constant date offset is detected as a pattern", {
   )
   b <- a
   b$d <- b$d + 10
-  cmp <- ks_compare(a, b, by = "id")
+  cmp <- ks_compare(a, b, by = "id", find_patterns = TRUE)
   expect_true(any(cmp$pattern_summary$pattern == "constant_offset"))
   detail <- cmp$pattern_summary$detail[
     cmp$pattern_summary$pattern == "constant_offset"

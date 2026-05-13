@@ -10,22 +10,34 @@ ks_tidy(x, ...)
 \item{x}{A \code{ks_comparison}.}
 
 \item{...}{Unused.}
+
+\item{include_unmatched}{Logical (default \code{FALSE}). When \code{TRUE},
+append base-only / comp-only rows from \code{cmp$unmatched_rows}.}
 }
 \value{
-A tibble of value differences.
+A tibble of value differences, optionally with appended
+unmatched-row markers. Has columns \code{key_id}, \code{base_row},
+\code{comp_row}, \code{column_base}, \code{column_comp}, \code{kind}, \code{base}, \code{comp},
+\code{diff}, \code{na_flow}, \code{note}.
 }
 \description{
 Returns the long-format cell-level diff table. Equivalent to
-\code{as_tibble(cmp)} and identical to \code{cmp$value_diff}. The result has
-one row per differing cell with columns:
-\code{key_id}, \code{column_base}, \code{column_comp}, \code{kind}, \code{base}, \code{comp},
-\code{diff}, \code{note}.
+\code{as_tibble(cmp)} and identical to \code{cmp$value_diff} when
+\code{include_unmatched = FALSE}.
+}
+\details{
+When \code{include_unmatched = TRUE}, rows describing observations
+present on only one side of the comparison are appended to the
+result with \code{kind = "base_only"} / \code{"comp_only"} and \code{column_base}
+/ \code{column_comp} set to \code{NA}. One row is added per unmatched
+observation, capped at \code{ks_compare(max_unmatched_rows = ...)}.
 }
 \examples{
 cmp <- ks_compare(
   data.frame(id = 1:2, x = c(1, 2)),
-  data.frame(id = 1:2, x = c(1, 3)),
+  data.frame(id = 1:3, x = c(1, 3, 4)),
   by = "id"
 )
 ks_tidy(cmp)
+ks_tidy(cmp, include_unmatched = TRUE)
 }

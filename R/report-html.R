@@ -1,4 +1,4 @@
-#' Render a self-contained HTML report
+﻿#' Render a self-contained HTML report
 #'
 #' Produces a polished, single-file HTML report summarising a
 #' `ks_comparison`. The output uses `htmltools` for layout and `reactable`
@@ -7,7 +7,7 @@
 #'
 #' Layout: a left-hand sticky table of contents, a header with dataset
 #' names, a status pill, KPI cards, then sections for schema, row diff,
-#' value diff, patterns, suggestions, and the run manifest. Tables use
+#' value diff, patterns, and the run manifest. Tables use
 #' friendly column labels, column groups, and `tick`/`cross` markers
 #' instead of raw `TRUE`/`FALSE`.
 #'
@@ -26,10 +26,11 @@
 #'     [ks_comp_options()], otherwise relative to the working directory.
 #' @param title Title shown at the top of the report.
 #' @param subtitle Optional subtitle (e.g. study identifier or run id).
-#' @param max_rows Per-table row cap (default `2000`). When the value-diff
+#' @param max_rows Per-table row cap (default `100`). When the value-diff
 #'   table exceeds this cap, the report shows a *smart stratified sample*
 #'   covering each column and each distinct diff-cause (`note`), prioritising
-#'   the largest numeric magnitudes; a notice indicates the sample size and
+#'   the largest numeric magnitudes (at least one example per column and per
+#'   cause is always retained). A notice indicates the sample size and
 #'   recommends `as_tibble(cmp)` for the full set. `as_tibble(x)` is never
 #'   truncated.
 #' @param theme One of `"default"` (steel blue) or `"slate"` (neutral
@@ -67,7 +68,7 @@ ks_report_html <- function(
   path = NULL,
   title = "ksCompare report",
   subtitle = NULL,
-  max_rows = 2000L,
+  max_rows = 100L,
   theme = c("default", "slate"),
   group_by_key = FALSE,
   max_groups = 200L
@@ -395,6 +396,12 @@ ks_html_page <- function(x, title, subtitle, max_rows, theme,
         content = "width=device-width, initial-scale=1"
       ),
       htmltools::tags$title(title),
+      htmltools::tags$link(rel = "preconnect", href = "https://fonts.googleapis.com"),
+      htmltools::tags$link(rel = "preconnect", href = "https://fonts.gstatic.com", crossorigin = ""),
+      htmltools::tags$link(
+        rel = "stylesheet",
+        href = "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      ),
       htmltools::tags$style(htmltools::HTML(ks_html_css(theme)))
     ),
     htmltools::tags$body(
@@ -418,7 +425,9 @@ ks_html_page <- function(x, title, subtitle, max_rows, theme,
           status
         ),
         ks_html_dataset_block(x, bn, cn),
-        ks_html_kpi_block(s),
+        ks_html_verdict_block(x),
+        ks_html_recommendations_block(x),
+        ks_html_kpi_block(s, x),
         body_sections,
         htmltools::tags$footer(
           class = "ks-footer",
@@ -496,13 +505,13 @@ ks_html_dataset_block <- function(x, bn, cn) {
   )
 }
 
-ks_html_kpi_block <- function(s) {
+ks_html_kpi_block <- function(s, x = NULL) {
   kpi <- function(label, value, kind = "neutral", hint = NULL) {
     htmltools::tags$div(
       class = paste0("ks-kpi ks-kpi-", kind),
       htmltools::tags$div(
         class = "ks-kpi-value",
-        format(value, big.mark = ",")
+        if (is.character(value)) value else format(value, big.mark = ",")
       ),
       htmltools::tags$div(class = "ks-kpi-label", label),
       if (!is.null(hint)) {
@@ -515,6 +524,13 @@ ks_html_kpi_block <- function(s) {
   rc_kind <- if (s$n_comp_only_rows == 0L) "ok" else "warn"
   schema_n <- s$n_base_only_columns + s$n_comp_only_columns
   schema_kind <- if (schema_n == 0L) "ok" else "warn"
+  health <- if (!is.null(x)) tryCatch(ks_match_health(x), error = function(e) NULL) else NULL
+  density_kpi <- if (!is.null(health)) {
+    dd <- health$diff_density
+    pct <- if (is.na(dd) || dd == 0) "0%" else if (dd < 0.0001) "<0.01%" else sprintf("%.2f%%", 100 * dd)
+    sev <- if (is.na(dd) || dd == 0) "ok" else if (dd > 0.10) "warn" else "neutral"
+    kpi("Diff density", pct, sev, "diff cells / matched cells")
+  } else NULL
   htmltools::tags$div(
     class = "ks-kpis",
     kpi("Matched rows", s$n_matched_rows, "ok"),
@@ -528,7 +544,8 @@ ks_html_kpi_block <- function(s) {
       s$n_columns_with_diffs,
       v_kind,
       "distinct columns affected"
-    )
+    ),
+    density_kpi
   )
 }
 
@@ -554,19 +571,40 @@ ks_html_sections <- function(x, s, max_rows, bn, cn,
       body = ks_html_row_matching(x$meta$matching, x)
     ),
     list(
-      id = "row-status",
-      title = "Row status",
-      count = NULL,
-      blurb = "How rows align between the two datasets.",
-      body = ks_html_row_status_cards(x$key_diff)
+      id = "unmatched-rows",
+      title = "Unmatched rows",
+      count = if (is.null(x$unmatched_rows)) 0L else nrow(x$unmatched_rows),
+      count_label = "rows",
+      blurb = "Full base-only / comp-only rows (capped by `max_unmatched_rows` on `ks_compare()`).",
+      body = ks_html_table_unmatched(x$unmatched_rows, max_rows, bn, cn)
     ),
     list(
       id = "columns-with-diffs",
       title = "Columns with differences",
       count = s$n_columns_with_diffs,
       count_label = "columns",
-      blurb = "PROC COMPARE-style summary: per-column counts, the dominant cause of difference, and (for numeric columns) magnitude statistics. Click a column name to filter the value-diff table below.",
+      blurb = "Per-column summary: counts, the dominant cause of difference, and (for numeric columns) magnitude statistics. Click a column name to filter the value-diff table below.",
       body = ks_html_table_column_summary(x$value_diff, s)
+    ),
+    list(
+      id = "row-hotspots",
+      title = "Most-affected rows",
+      count = {
+        rs <- ks_row_diff_summary(x); if (is.null(rs)) 0L else nrow(rs)
+      },
+      count_label = "rows",
+      blurb = "Observations with the highest number of cell differences. Often pinpoints wrong row matches or systemic shifts on a single record. `base_row` / `comp_row` reference the original 1-based row index in `base` / `comp`.",
+      body = ks_html_table_row_hotspots(ks_row_diff_summary(x, n = max_rows), max_rows)
+    ),
+    list(
+      id = "diff-causes",
+      title = "Diff causes",
+      count = {
+        cs <- ks_cause_summary(x); if (is.null(cs)) 0L else nrow(cs)
+      },
+      count_label = "causes",
+      blurb = "Taxonomy of *why* cells differ (case-fold, whitespace, NA flow, magnitude, ...). One row per recognised cause across all matched columns.",
+      body = ks_html_table_causes(ks_cause_summary(x), max_rows)
     ),
     list(
       id = "values",
@@ -583,14 +621,6 @@ ks_html_sections <- function(x, s, max_rows, bn, cn,
       count_label = "found",
       blurb = "Recurring shapes detected across diffs (e.g. case fold, trailing whitespace, constant offset).",
       body = ks_html_table_patterns(x$pattern_summary, max_rows)
-    ),
-    list(
-      id = "suggestions",
-      title = "Column rename suggestions",
-      count = if (is.null(x$column_suggestions)) 0L else nrow(x$column_suggestions),
-      count_label = "candidates",
-      blurb = "Likely renames between unmatched columns, ranked by name similarity and type compatibility.",
-      body = ks_html_table_suggestions(x$column_suggestions, max_rows)
     ),
     list(
       id = "manifest",
@@ -819,39 +849,6 @@ ks_html_table_dup_keys <- function(dup_summary, strategy, bn, cn) {
       max_rows = 200L,
       columns = cols,
       default_sorted = list(n_base = "desc")
-    )
-  )
-}
-
-ks_html_row_status_cards <- function(kd) {
-  if (is.null(kd) || nrow(kd) == 0L) {
-    return(htmltools::tags$p(class = "ks-empty", htmltools::tags$em("(none)")))
-  }
-  matched <- kd$matched %||% 0L
-  bo <- kd$base_only %||% 0L
-  co <- kd$comp_only %||% 0L
-  card <- function(label, value, kind, hint) {
-    htmltools::tags$div(
-      class = paste0("ks-mini ks-mini-", kind),
-      htmltools::tags$div(class = "ks-mini-value", format(value, big.mark = ",")),
-      htmltools::tags$div(class = "ks-mini-label", label),
-      htmltools::tags$div(class = "ks-mini-hint", hint)
-    )
-  }
-  htmltools::tags$div(
-    class = "ks-minis",
-    card("Matched", matched, "ok", "rows present on both sides"),
-    card(
-      "Base-only",
-      bo,
-      if (bo == 0L) "ok" else "warn",
-      "rows in base, missing from compare"
-    ),
-    card(
-      "Compare-only",
-      co,
-      if (co == 0L) "ok" else "warn",
-      "rows in compare, missing from base"
     )
   )
 }
@@ -1095,6 +1092,7 @@ ks_html_value_group_block <- function(label, sub, n_diffs, n_cols, max_rows,
     column_comp = reactable::colDef(show = FALSE),
     kind = reactable::colDef(show = FALSE),
     key_label = reactable::colDef(show = FALSE),
+    na_flow = reactable::colDef(show = FALSE),
     pair_rank = reactable::colDef(show = FALSE),
     pair_total = reactable::colDef(show = FALSE)
   )
@@ -1118,9 +1116,24 @@ ks_html_value_group_block <- function(label, sub, n_diffs, n_cols, max_rows,
   sub$base <- ks_mark_whitespace(sub$base)
   sub$comp <- ks_mark_whitespace(sub$comp)
 
+  # Apply the smart sampler so every column with a diff in this group
+  # gets at least one example row, even when truncating to max_rows.
+  sampled <- ks_smart_sample_value_diff(sub, max_rows)
+  sub <- sampled$df
+  notice <- if (!sampled$full) {
+    htmltools::tags$p(
+      class = "ks-warning",
+      sprintf(
+        "Showing %s of %s rows (\u2265 1 row per column with a difference).",
+        format(sampled$sampled, big.mark = ","),
+        format(sampled$total, big.mark = ",")
+      )
+    )
+  }
+
   tbl <- ks_reactable(
     sub,
-    max_rows = max_rows,
+    max_rows = nrow(sub),
     columns = cols,
     searchable = FALSE,
     default_sorted = list(column_base = "asc")
@@ -1152,7 +1165,7 @@ ks_html_value_group_block <- function(label, sub, n_diffs, n_cols, max_rows,
       ),
       pair_chip
     ),
-    htmltools::tags$div(class = "ks-group-body", tbl)
+    htmltools::tags$div(class = "ks-group-body", notice, tbl)
   )
 }
 
@@ -1173,7 +1186,13 @@ ks_html_table_values <- function(df, max_rows) {
   col_options <- names(sort(col_counts, decreasing = TRUE))
 
   cols <- list(
-    key_id = reactable::colDef(name = "Row", minWidth = 70, align = "right"),
+    key_id = reactable::colDef(name = "Key id", minWidth = 70, align = "right"),
+    base_row = reactable::colDef(
+      name = "Base row", minWidth = 80, align = "right", na = "\u2013"
+    ),
+    comp_row = reactable::colDef(
+      name = "Comp row", minWidth = 80, align = "right", na = "\u2013"
+    ),
     column_base = reactable::colDef(
       name = "Base column",
       minWidth = 150,
@@ -1184,7 +1203,7 @@ ks_html_table_values <- function(df, max_rows) {
           return rows.filter(function(r) { return r.values[columnId] === filterValue; });
         }"
       ),
-      # Hide the default text input — we drive this filter from the external
+      # Hide the default text input вЂ” we drive this filter from the external
       # select above the table.
       filterInput = reactable::JS(
         "function() { return null; }"
@@ -1214,6 +1233,7 @@ ks_html_table_values <- function(df, max_rows) {
       html = TRUE,
       cell = ks_js_diff_cell()
     ),
+    na_flow = reactable::colDef(show = FALSE),
     note = reactable::colDef(
       name = "Note",
       minWidth = 200,
@@ -1222,7 +1242,7 @@ ks_html_table_values <- function(df, max_rows) {
     )
   )
   groups <- list(
-    reactable::colGroup(name = "Location", columns = c("key_id", "column_base", "column_comp")),
+    reactable::colGroup(name = "Location", columns = c("key_id", "base_row", "comp_row", "column_base", "column_comp")),
     reactable::colGroup(name = "Values", columns = c("base", "comp", "diff"))
   )
   tbl <- ks_reactable(
@@ -1297,11 +1317,14 @@ ks_html_column_selector <- function(table_id, values, counts, total) {
 #' Internal: pick a stratified sample of value-diff rows when there are
 #' more diffs than the report budget.
 #'
-#' Strategy: group rows by `(column_base, note)`, sort within each group
-#' by descending `|diff|` and ascending `key_id`, then round-robin pick
-#' across groups until the budget is filled. Guarantees every column and
-#' every distinct diff-cause is represented at least once (subject to
-#' the budget being >= n_buckets).
+#' Strategy (tiered):
+#'   1. The highest-`|diff|` row per `column_base`. Always kept, even
+#'      if `n_columns > max_rows` -- every column with a diff appears
+#'      at least once.
+#'   2. The highest-`|diff|` row per `(column_base, note)` bucket --
+#'      one example of every distinct diff cause within each column.
+#'   3. If the budget still has room, fill with the remaining rows in
+#'      `|diff|`-desc order.
 #'
 #' @return A list with `df`, `full` (logical), `total`, `sampled`,
 #'   `n_columns`, `n_buckets`.
@@ -1309,39 +1332,52 @@ ks_html_column_selector <- function(table_id, values, counts, total) {
 #' @noRd
 ks_smart_sample_value_diff <- function(df, max_rows) {
   n <- nrow(df)
+  cols <- df$column_base
+  notes <- ifelse(is.na(df$note), "(no-note)", df$note)
+  bucket <- paste0(cols, "\u0001", notes)
+  n_columns <- length(unique(cols))
+  n_buckets <- length(unique(bucket))
+
   if (n <= max_rows) {
     return(list(
       df = df,
       full = TRUE,
       total = n,
       sampled = n,
-      n_columns = length(unique(df$column_base)),
-      n_buckets = NA_integer_
+      n_columns = n_columns,
+      n_buckets = n_buckets
     ))
   }
-  bucket <- paste0(
-    df$column_base,
-    "\u0001",
-    ifelse(is.na(df$note), "(no-note)", df$note)
-  )
-  absdiff <- ifelse(is.na(df$diff), 0, abs(df$diff))
-  # Within bucket: rank rows by |diff| desc then key_id asc.
-  ord <- order(bucket, -absdiff, df$key_id)
-  rank_within <- stats::ave(
-    seq_along(bucket)[ord],
-    bucket[ord],
-    FUN = seq_along
-  )
-  pick_order <- order(rank_within, bucket[ord])
-  keep_idx <- ord[pick_order][seq_len(max_rows)]
-  out <- df[sort(keep_idx), , drop = FALSE]
+
+  absdiff <- suppressWarnings(abs(as.numeric(df$diff)))
+  absdiff[is.na(absdiff)] <- 0
+  # Global priority: largest |diff| first, then earliest key_id.
+  global_ord <- order(-absdiff, df$key_id)
+
+  # Tier 1 (always honoured, even if it exceeds max_rows): the
+  # highest-|diff| row per column. Guarantees every column appears
+  # at least once in the rendered sample.
+  tier1 <- global_ord[!duplicated(cols[global_ord])]
+  # Tier 2: the highest-|diff| row per (column, note) bucket -- one
+  # example of every distinct diff cause within each column.
+  tier2 <- global_ord[!duplicated(bucket[global_ord])]
+
+  picked <- unique(c(tier1, tier2))
+  if (length(picked) < max_rows) {
+    remainder <- setdiff(global_ord, picked)
+    picked <- c(picked, utils::head(remainder, max_rows - length(picked)))
+  }
+  # If n_columns > max_rows, tier1 alone exceeds the cap; keep it
+  # anyway -- coverage trumps the cap.
+
+  out <- df[sort(picked), , drop = FALSE]
   list(
     df = out,
     full = FALSE,
     total = n,
     sampled = nrow(out),
-    n_columns = length(unique(df$column_base)),
-    n_buckets = length(unique(bucket))
+    n_columns = n_columns,
+    n_buckets = n_buckets
   )
 }
 
@@ -1441,42 +1477,147 @@ ks_md_inline_code <- function(s) {
   gsub("`([^`]+)`", "<code>\\1</code>", s)
 }
 
-ks_html_table_suggestions <- function(df, max_rows) {
+ks_html_table_unmatched <- function(df, max_rows, bn = "base", cn = "comp") {
   if (is.null(df) || nrow(df) == 0L) {
-    return(ks_html_empty("No rename suggestions."))
+    return(ks_html_empty("No unmatched rows."))
   }
+  truncated <- attr(df, "truncated")
+  n_total <- attr(df, "n_total")
+  bn <- bn %||% "base"
+  cn <- cn %||% "comp"
+  side_pill <- reactable::JS(sprintf(
+    "function(cell) {
+       var v = cell.value;
+       if (v === 'base_only') return '<span class=\"ks-pill ks-pill-warn\">%s only</span>';
+       if (v === 'comp_only') return '<span class=\"ks-pill ks-pill-warn\">%s only</span>';
+       return v == null ? '' : String(v);
+     }",
+    gsub("'", "\\\\'", bn), gsub("'", "\\\\'", cn)
+  ))
   cols <- list(
-    base = reactable::colDef(name = "Base column", minWidth = 130),
-    comp = reactable::colDef(name = "Compare column", minWidth = 130),
-    score = reactable::colDef(
-      name = "Score",
-      minWidth = 90,
-      align = "right",
-      format = reactable::colFormat(digits = 3)
-    ),
-    name_similarity = reactable::colDef(
-      name = "Name similarity",
-      minWidth = 130,
-      align = "right",
-      format = reactable::colFormat(percent = TRUE, digits = 1)
-    ),
-    kind_compat = reactable::colDef(
-      name = "Type compatible",
-      minWidth = 130,
-      align = "center",
+    side = reactable::colDef(
+      name = "Side",
+      minWidth = 110,
       html = TRUE,
-      cell = ks_js_check()
+      cell = side_pill
+    ),
+    key_id = reactable::colDef(name = "Key id", minWidth = 80, align = "right"),
+    key_label = reactable::colDef(name = "Key", minWidth = 180),
+    base_row = reactable::colDef(
+      name = "Base row", minWidth = 90, align = "right",
+      na = "\u2013"
+    ),
+    comp_row = reactable::colDef(
+      name = "Comp row", minWidth = 90, align = "right",
+      na = "\u2013"
     )
   )
-  ks_reactable(
-    df,
-    max_rows = max_rows,
-    columns = cols,
-    default_sorted = list(score = "desc")
+  tbl <- ks_reactable(df, max_rows = max_rows, columns = cols)
+  notice <- NULL
+  if (!is.null(truncated) && any(truncated, na.rm = TRUE)) {
+    bo_n <- if (is.null(n_total)) NA else n_total[["base"]]
+    co_n <- if (is.null(n_total)) NA else n_total[["comp"]]
+    notice <- htmltools::tags$p(
+      class = "ks-empty",
+      sprintf(
+        "Showing a capped sample of unmatched rows (%d base-only / %d comp-only in total). Raise `max_unmatched_rows` on `ks_compare()` to retain more.",
+        as.integer(bo_n %||% 0L), as.integer(co_n %||% 0L)
+      )
+    )
+  }
+  htmltools::tagList(notice, tbl)
+}
+
+# Executive verdict card shown above the KPI strip.
+ks_html_verdict_block <- function(x) {
+  v <- tryCatch(ks_executive_verdict(x), error = function(e) NULL)
+  if (is.null(v)) return(NULL)
+  pct <- v$pct_match
+  sev <- v$severity %||% "ok"
+  bar <- if (!is.na(pct)) {
+    htmltools::tags$div(
+      class = "ks-verdict-bar",
+      htmltools::tags$div(
+        class = "ks-verdict-bar-fill",
+        style = sprintf("width: %.2f%%;", max(0, min(100, pct)))
+      )
+    )
+  } else {
+    NULL
+  }
+  htmltools::tags$div(
+    class = paste0("ks-verdict ks-verdict-", sev),
+    htmltools::tags$div(class = "ks-verdict-label", "Verdict"),
+    htmltools::tags$div(class = "ks-verdict-text", v$headline),
+    bar
   )
 }
 
-# Per-column summary, PROC COMPARE-style.
+# Recommendations card: "what to look at first" actionable findings.
+ks_html_recommendations_block <- function(x) {
+  recs <- tryCatch(ks_recommendations(x), error = function(e) NULL)
+  if (is.null(recs) || nrow(recs) == 0L) return(NULL)
+  items <- lapply(seq_len(nrow(recs)), function(i) {
+    sev <- recs$severity[[i]]
+    htmltools::tags$li(
+      class = paste0("ks-rec-item ks-rec-", sev),
+      htmltools::tags$span(class = "ks-rec-badge", toupper(sev)),
+      htmltools::tags$div(
+        class = "ks-rec-body",
+        htmltools::tags$div(class = "ks-rec-title", recs$title[[i]]),
+        htmltools::tags$div(class = "ks-rec-msg", recs$message[[i]]),
+        if (!is.na(recs$action[[i]])) {
+          htmltools::tags$div(class = "ks-rec-action",
+                              htmltools::tags$strong("Next: "),
+                              recs$action[[i]])
+        }
+      )
+    )
+  })
+  htmltools::tags$div(
+    class = "ks-recs",
+    htmltools::tags$div(class = "ks-recs-label", "Recommendations"),
+    htmltools::tags$ul(class = "ks-recs-list", items)
+  )
+}
+
+# Diff causes table.
+ks_html_table_causes <- function(df, max_rows) {
+  if (is.null(df) || nrow(df) == 0L) {
+    return(ks_html_empty("No diff causes (no value differences)."))
+  }
+  cols <- list(
+    cause = reactable::colDef(name = "Cause", minWidth = 220),
+    n_cells = reactable::colDef(name = "Cells", minWidth = 80, align = "right"),
+    n_columns = reactable::colDef(name = "Columns", minWidth = 90, align = "right"),
+    columns = reactable::colDef(name = "Affected columns", minWidth = 240)
+  )
+  ks_reactable(
+    df, max_rows = max_rows, columns = cols,
+    default_sorted = list(n_cells = "desc")
+  )
+}
+
+# Per-row hotspots.
+ks_html_table_row_hotspots <- function(df, max_rows) {
+  if (is.null(df) || nrow(df) == 0L) {
+    return(ks_html_empty("No matched rows with cell differences."))
+  }
+  cols <- list(
+    key_id = reactable::colDef(name = "Key id", minWidth = 80, align = "right"),
+    base_row = reactable::colDef(name = "Base row", minWidth = 90, align = "right", na = "\u2013"),
+    comp_row = reactable::colDef(name = "Comp row", minWidth = 90, align = "right", na = "\u2013"),
+    key_label = reactable::colDef(name = "Key", minWidth = 180, na = "\u2013"),
+    n_diffs = reactable::colDef(name = "Diffs", minWidth = 80, align = "right"),
+    columns = reactable::colDef(name = "Columns affected", minWidth = 240)
+  )
+  ks_reactable(
+    df, max_rows = max_rows, columns = cols,
+    default_sorted = list(n_diffs = "desc")
+  )
+}
+
+# Per-column summary: counts, dominant cause, magnitude statistics.
 ks_html_table_column_summary <- function(value_diff, s) {
   if (is.null(value_diff) || nrow(value_diff) == 0L) {
     return(ks_html_empty("No columns with value differences."))
@@ -1580,12 +1721,18 @@ ks_reactable <- function(
   column_groups = NULL,
   default_sorted = NULL,
   searchable = TRUE,
-  filterable = FALSE,
+  filterable = TRUE,
   element_id = NULL
 ) {
   full_rows <- nrow(df)
   truncated <- full_rows > max_rows
   if (truncated) df <- df[seq_len(max_rows), , drop = FALSE]
+
+  # When per-column filters are enabled we need a stable element id so
+  # the select-dropdown filters can call Reactable.setFilter().
+  if (isTRUE(filterable) && is.null(element_id)) {
+    element_id <- paste0("ks-tbl-", as.integer(stats::runif(1L) * 1e9))
+  }
 
   rt_args <- list(
     data = df,
@@ -1599,14 +1746,14 @@ ks_reactable <- function(
     showPageSizeOptions = TRUE,
     pageSizeOptions = c(10, 25, 50, 100),
     theme = reactable::reactableTheme(
-      style = list(fontSize = "12px"),
+      style = list(fontSize = "10.5px"),
       tableStyle = list(border = "none"),
       headerStyle = list(
         background = "#eef2f7",
         color = "#1f2933",
-        fontWeight = 600,
+        fontWeight = 700,
         borderBottom = "1px solid #cdd6e0",
-        fontSize = "11.5px",
+        fontSize = "9.5px",
         textTransform = "none"
       ),
       groupHeaderStyle = list(
@@ -1620,11 +1767,37 @@ ks_reactable <- function(
       ),
       cellStyle = list(
         fontVariantNumeric = "tabular-nums",
-        padding = "4px 8px"
+        padding = "2px 5px"
       ),
       searchInputStyle = list(width = "240px")
     )
   )
+  if (isTRUE(filterable)) {
+    rt_args$defaultColDef <- reactable::colDef(
+      filterInput = ks_select_filter(element_id),
+      # Custom filter: select-dropdown options arrive with a leading "="
+      # sentinel and require an exact match against the cell value;
+      # free-text inputs fall back to case-insensitive substring matching.
+      filterMethod = reactable::JS(
+        "function(rows, columnId, filterValue) {
+          if (filterValue == null || filterValue === '') return rows;
+          var s = String(filterValue);
+          if (s.charAt(0) === '=') {
+            var v = s.substring(1);
+            return rows.filter(function(r) {
+              var cv = r.values[columnId];
+              return cv != null && String(cv) === v;
+            });
+          }
+          var needle = s.toLowerCase();
+          return rows.filter(function(r) {
+            var cv = r.values[columnId];
+            return cv != null && String(cv).toLowerCase().indexOf(needle) !== -1;
+          });
+        }"
+      )
+    )
+  }
   if (!is.null(columns)) rt_args$columns <- columns
   if (!is.null(column_groups)) rt_args$columnGroups <- column_groups
   if (!is.null(default_sorted)) rt_args$defaultSorted <- default_sorted
@@ -1650,6 +1823,46 @@ ks_reactable <- function(
 }
 
 # ---- JS cell renderers ------------------------------------------------------
+
+# Per-column header filter input. Returns a <select> dropdown of distinct
+# values for low-cardinality columns, falling back to a free-text input
+# when there are too many distinct values (or when values aren't atomic).
+# Uses `Reactable.setFilter()` to drive the table's column filter.
+ks_select_filter <- function(table_id) {
+  force(table_id)
+  function(values, name) {
+    set_call <- sprintf(
+      "Reactable.setFilter('%s', '%s', event.target.value || undefined)",
+      table_id, name
+    )
+    uv <- tryCatch(unique(values), error = function(e) NULL)
+    # Free-text fallback for non-atomic / high-cardinality columns.
+    # Uses substring matching via the default filterMethod (see ks_reactable).
+    if (is.null(uv) || !is.atomic(uv) || length(uv) == 0L || length(uv) > 50L) {
+      return(htmltools::tags$input(
+        type = "search",
+        class = "ks-col-filter",
+        oninput = set_call,
+        placeholder = "filter\u2026",
+        `aria-label` = sprintf("Filter %s", name)
+      ))
+    }
+    uv <- uv[!is.na(uv)]
+    uv_str <- sort(unique(as.character(uv)))
+    # Dropdown options carry a leading "=" sentinel so the default
+    # filterMethod in ks_reactable() treats the selection as an EXACT
+    # match (otherwise "AVAL" would also match "AVALC", "AVAL2", ...).
+    htmltools::tags$select(
+      class = "ks-col-filter",
+      onchange = set_call,
+      `aria-label` = sprintf("Filter %s", name),
+      htmltools::tags$option(value = "", "All"),
+      lapply(uv_str, function(v) {
+        htmltools::tags$option(value = paste0("=", v), v)
+      })
+    )
+  }
+}
 
 ks_js_check <- function() {
   reactable::JS(
@@ -1757,13 +1970,26 @@ ks_js_note_cell <- function() {
   reactable::JS(
     "function(cellInfo) {
       var v = cellInfo.value;
-      if (v === null || v === undefined || v === '') {
+      var row = cellInfo.row || {};
+      var na = row['na_flow'];
+      var chips = [];
+      if (na === 'value_to_na') {
+        chips.push('<span class=\"ks-note-chip ks-note-chip-na\" title=\"base had a value, compare is NA\">\u2192NA</span>');
+      } else if (na === 'na_to_value') {
+        chips.push('<span class=\"ks-note-chip ks-note-chip-na\" title=\"base was NA, compare has a value\">\u2190NA</span>');
+      } else if (na === 'both_na_differ') {
+        chips.push('<span class=\"ks-note-chip ks-note-chip-na\" title=\"both sides NA, but different NA flavours\">\u2260NA</span>');
+      }
+      if (v !== null && v !== undefined && v !== '') {
+        var parts = String(v).split(/;\\s*/);
+        parts.forEach(function(p) {
+          chips.push('<span class=\"ks-note-chip\">' + p + '</span>');
+        });
+      }
+      if (chips.length === 0) {
         return '<span class=\"ks-dim\">-</span>';
       }
-      var parts = String(v).split(/;\\s*/);
-      return parts.map(function(p) {
-        return '<span class=\"ks-note-chip\">' + p + '</span>';
-      }).join(' ');
+      return chips.join(' ');
     }"
   )
 }
@@ -1808,154 +2034,268 @@ ks_mark_whitespace <- function(x) {
 # ---- CSS --------------------------------------------------------------------
 
 ks_html_css <- function(theme) {
-  primary <- if (identical(theme, "slate")) "#334155" else "#3a6b9c"
-  primary_dark <- if (identical(theme, "slate")) "#1e293b" else "#274a6e"
+  # Theme accent (kept for backwards compat with the `theme` arg).
+  # The new design is deliberately neutral; the accent is reserved for
+  # status-warning hairlines so the two themes look very similar.
+  accent <- if (identical(theme, "slate")) "#0f172a" else "#1f2937"
+  accent_dark <- if (identical(theme, "slate")) "#020617" else "#0b1220"
   paste(
-    sprintf(
-      ":root { --ks-primary: %s; --ks-primary-dark: %s; }",
-      primary,
-      primary_dark
-    ),
+    # ---- Design tokens --------------------------------------------------
+    # Calm neutral palette. One single chromatic accent (vermillion) is
+    # reserved for "differences detected" markers and warning rules; an
+    # emerald is used only for the "pass" status pill. Everything else is
+    # ink-on-paper. Four-step type scale: 11px (meta/mono), 13px (body),
+    # 18px (section title), 26px (h1) plus 22px for KPI values.
+    ":root {",
+    "  --ks-paper: #f7f5f0;",
+    "  --ks-paper-soft: #fbfaf6;",
+    "  --ks-card: #ffffff;",
+    "  --ks-ink: #1a1a1a;",
+    "  --ks-ink-soft: #4a4a4a;",
+    "  --ks-muted: #767676;",
+    "  --ks-rule: #d6d2c7;",
+    "  --ks-rule-soft: #e8e4d8;",
+    sprintf("  --ks-accent: %s;", accent),
+    sprintf("  --ks-accent-dark: %s;", accent_dark),
+    "  --ks-vermillion: #b94a2c;",
+    "  --ks-vermillion-soft: #fbe9e1;",
+    "  --ks-emerald: #2f7d5b;",
+    "  --ks-emerald-soft: #e2efe8;",
+    "  --ks-amber: #8a5a17;",
+    "  --ks-amber-soft: #f3ead4;",
+    "  --ks-indigo: #2f3f7d;",
+    "  --ks-indigo-soft: #e6e8f1;",
+    "  --ks-crimson: #8a2542;",
+    "  --ks-crimson-soft: #f3dde2;",
+    "  --ks-font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;",
+    "  --ks-font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, 'Cascadia Mono', Menlo, Consolas, monospace;",
+    "  --ks-font-display: var(--ks-font-body);",
+    "  --ks-fs-micro: 0.66rem;",
+    "  --ks-fs-meta: 0.7rem;",
+    "  --ks-fs-body: 0.8rem;",
+    "  --ks-fs-table: 0.74rem;",
+    "  --ks-fs-h2: 1.05rem;",
+    "  --ks-fs-h1: 1.5rem;",
+    "  --ks-fs-kpi: 1.35rem;",
+    "}",
+    # ---- Reset / base ---------------------------------------------------
     "* { box-sizing: border-box; }",
     "html, body { margin: 0; padding: 0; }",
-    "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1f2933; background: #fafbfc; line-height: 1.5; font-size: 14px; }",
-    # TOC
-    ".ks-toc { position: fixed; top: 0; left: 0; bottom: 0; width: 220px; padding: 1.25rem 0.75rem; background: var(--ks-primary-dark); color: #e6edf3; overflow-y: auto; }",
-    ".ks-toc-brand { font-weight: 700; font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 0 0.5rem 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.15); margin-bottom: 0.5rem; }",
-    ".ks-toc ul { list-style: none; margin: 0; padding: 0; }",
-    ".ks-toc li { margin: 0.05rem 0; }",
-    ".ks-toc a { color: #cdd9e5; text-decoration: none; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.85rem; }",
-    ".ks-toc a:hover { background: rgba(255,255,255,0.1); color: #fff; }",
+    paste0(
+      "body { ",
+      "font-family: var(--ks-font-body); ",
+      "color: var(--ks-ink); ",
+      "background: var(--ks-paper); ",
+      "line-height: 1.5; font-size: 13.5px; ",
+      "-webkit-font-smoothing: antialiased; ",
+      "-moz-osx-font-smoothing: grayscale; ",
+      "font-feature-settings: 'tnum' 1, 'cv11' 1; ",
+      "}"
+    ),
+    "code, kbd, samp { font-family: var(--ks-font-mono); font-size: 0.92em; }",
+    "a { color: var(--ks-ink); text-decoration: underline; text-decoration-color: var(--ks-rule); text-underline-offset: 3px; }",
+    "a:hover { text-decoration-color: var(--ks-vermillion); }",
+    # ---- TOC : minimal side index ---------------------------------------
+    ".ks-toc { position: fixed; top: 0; left: 0; bottom: 0; width: 212px; padding: 1.5rem 1.1rem 1rem; background: transparent; border-right: 1px solid var(--ks-rule); overflow-y: auto; }",
+    ".ks-toc-brand { font-family: var(--ks-font-body); font-weight: 600; font-size: 0.88rem; line-height: 1; color: var(--ks-ink); padding: 0 0 0.5rem; margin-bottom: 0.85rem; border-bottom: 1px solid var(--ks-ink); letter-spacing: 0; }",
+    ".ks-toc-brand::after { content: ''; }",
+    ".ks-toc ul { list-style: none; margin: 0; padding: 0; counter-reset: ks-toc; }",
+    ".ks-toc li { margin: 0; counter-increment: ks-toc; }",
+    ".ks-toc a { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0; color: var(--ks-ink-soft); text-decoration: none; font-size: var(--ks-fs-table); line-height: 1.3; border-bottom: 1px solid var(--ks-rule-soft); }",
+    ".ks-toc a::before { content: counter(ks-toc, decimal-leading-zero); font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); color: var(--ks-muted); flex: 0 0 auto; }",
+    ".ks-toc a:hover { color: var(--ks-ink); }",
+    ".ks-toc a:hover::before { color: var(--ks-ink); }",
     ".ks-toc-label { flex: 1; }",
-    ".ks-toc-count { background: rgba(255,255,255,0.12); padding: 0.05rem 0.45rem; border-radius: 10px; font-size: 0.7rem; font-variant-numeric: tabular-nums; }",
-    ".ks-toc-count-warn { background: #d97706; color: #fff; }",
-    # Main
-    ".ks-main { margin-left: 240px; padding: 1.5rem 2rem 3rem; max-width: 1300px; }",
-    ".ks-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 2px solid var(--ks-primary); padding-bottom: 0.75rem; margin-bottom: 1.25rem; }",
-    ".ks-header h1 { margin: 0; font-size: 1.55rem; color: var(--ks-primary-dark); }",
-    ".ks-subtitle { margin: 0.25rem 0 0; color: #5b6b7c; font-size: 0.95rem; }",
-    # Status pill
-    ".ks-status { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 999px; font-weight: 600; font-size: 0.85rem; white-space: nowrap; }",
-    ".ks-status-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; }",
-    ".ks-status-pass { background: #e6f4ea; color: #1e7a3a; }",
-    ".ks-status-pass .ks-status-dot { background: #2ea043; }",
-    ".ks-status-diff { background: #fef3c7; color: #8a5a00; }",
-    ".ks-status-diff .ks-status-dot { background: #d97706; }",
-    # Datasets
-    ".ks-datasets { display: grid; grid-template-columns: 1fr auto 1fr; gap: 1rem; align-items: center; margin-bottom: 1.25rem; }",
-    ".ks-dscard { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 0.85rem 1rem; box-shadow: 0 1px 2px rgba(15,23,42,0.04); border-left: 3px solid var(--ks-primary); }",
-    ".ks-dscard-comp { border-left-color: #6c8ebf; }",
-    ".ks-dscard-label { font-size: 0.7rem; color: #6b7785; text-transform: uppercase; letter-spacing: 0.06em; }",
-    ".ks-dscard-name { font-weight: 600; font-size: 1.05rem; margin-top: 0.15rem; word-break: break-all; }",
-    ".ks-dscard-dim { color: #5b6b7c; font-size: 0.85rem; margin-top: 0.2rem; font-variant-numeric: tabular-nums; }",
-    ".ks-arrow { font-size: 1.5rem; color: #94a3b8; text-align: center; }",
-    # KPIs
-    ".ks-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }",
-    ".ks-kpi { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 0.7rem 0.9rem; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }",
-    ".ks-kpi-value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }",
-    ".ks-kpi-label { color: #1f2933; font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.15rem; }",
-    ".ks-kpi-hint { color: #6b7785; font-size: 0.72rem; margin-top: 0.1rem; }",
-    ".ks-kpi-ok { border-left: 3px solid #2ea043; }",
-    ".ks-kpi-warn { border-left: 3px solid #d97706; }",
-    ".ks-kpi-neutral { border-left: 3px solid #94a3b8; }",
-    # Mini cards (row-status)
-    ".ks-minis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; }",
-    ".ks-mini { background: #fff; border: 1px solid #e3e8ee; border-radius: 6px; padding: 0.85rem 1rem; }",
-    ".ks-mini-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }",
-    ".ks-mini-label { font-weight: 600; font-size: 0.85rem; margin-top: 0.1rem; }",
-    ".ks-mini-hint { color: #6b7785; font-size: 0.75rem; margin-top: 0.2rem; }",
-    ".ks-mini-ok { border-top: 3px solid #2ea043; }",
-    ".ks-mini-warn { border-top: 3px solid #d97706; }",
-    # Sections
-    ".ks-section { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 1rem 1.1rem 1.25rem; margin-bottom: 1.25rem; box-shadow: 0 1px 2px rgba(15,23,42,0.03); scroll-margin-top: 1rem; }",
-    ".ks-section-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; border-bottom: 1px solid #eef1f5; padding-bottom: 0.5rem; }",
-    ".ks-section-head h2 { margin: 0; color: var(--ks-primary-dark); font-size: 1.1rem; flex: 0 0 auto; }",
-    ".ks-section-blurb { flex-basis: 100%; margin: 0.1rem 0 0; color: #5b6b7c; font-size: 0.82rem; }",
-    ".ks-section-blurb code { background: #eef2f7; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }",
-    # Pills
-    ".ks-pill { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; line-height: 1.5; }",
-    ".ks-pill-ok { background: #e6f4ea; color: #1e7a3a; }",
-    ".ks-pill-warn { background: #fef3c7; color: #8a5a00; }",
-    ".ks-pill-info { background: #e0e7ff; color: #3730a3; }",
-    ".ks-pill-neutral { background: #eef2f7; color: #475569; }",
-    # Tick / cross
-    ".ks-tick { color: #1e7a3a; font-weight: 700; font-size: 0.95rem; }",
-    ".ks-cross { color: #b91c1c; font-weight: 700; font-size: 0.95rem; }",
-    ".ks-cross-note { color: #b91c1c; font-weight: 500; font-size: 0.7rem; margin-left: 0.3rem; }",
-    ".ks-dim { color: #94a3b8; }",
-    # Diff colours
-    ".ks-diff-pos { color: #b45309; font-weight: 600; }",
-    ".ks-diff-neg { color: #1d4ed8; font-weight: 600; }",
-    # Note chips
-    ".ks-note-chip { display: inline-block; background: #fff7e6; color: #8a5a00; border: 1px solid #f1d28a; padding: 0.05rem 0.45rem; border-radius: 4px; font-size: 0.72rem; line-height: 1.5; margin: 0.05rem 0.1rem 0.05rem 0; }",
-    # Sample notice
-    ".ks-sample-notice { background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.82rem; margin: 0 0 0.75rem; }",
-    ".ks-sample-notice code { background: rgba(255,255,255,0.6); padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }",
-    # Column selector (above value-diff table)
-    ".ks-col-selector { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.6rem; flex-wrap: wrap; }",
-    ".ks-col-selector label { font-size: 0.82rem; color: #475569; font-weight: 600; }",
-    ".ks-col-selector select { padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; min-width: 240px; max-width: 100%; font-variant-numeric: tabular-nums; }",
-    # Row-matching section
-    ".ks-banner { border-radius: 8px; padding: 0.85rem 1rem; margin: 0 0 0.85rem; border-left-width: 4px; border-left-style: solid; }",
-    ".ks-banner-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 0.25rem; }",
-    ".ks-banner-body { font-size: 0.85rem; line-height: 1.5; }",
-    ".ks-banner-body code { background: rgba(255,255,255,0.6); padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }",
-    ".ks-banner-ok { background: #ecfdf5; color: #065f46; border-left-color: #10b981; }",
-    ".ks-banner-warn { background: #fffbeb; color: #78350f; border-left-color: #f59e0b; }",
-    ".ks-rm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.6rem; margin: 0 0 0.85rem; }",
-    ".ks-rm-stat { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 0.6rem 0.8rem; }",
-    ".ks-rm-stat-value { font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }",
-    ".ks-rm-stat-label { font-size: 0.78rem; color: #64748b; margin-top: 0.15rem; }",
-    ".ks-rm-stat-ok { border-color: #a7f3d0; background: #ecfdf5; }",
-    ".ks-rm-stat-warn { border-color: #fcd34d; background: #fffbeb; }",
-    ".ks-keycard { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 0.6rem 0.85rem; margin: 0 0 0.85rem; }",
-    ".ks-keycard-label { font-size: 0.78rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }",
-    ".ks-keycard-list { margin: 0.25rem 0 0; padding-left: 1.1rem; font-size: 0.88rem; }",
-    ".ks-keycard-list code { background: #fff; padding: 0.05rem 0.3rem; border-radius: 3px; border: 1px solid #e5e7eb; font-size: 0.82rem; }",
-    ".ks-keycard-empty { font-size: 0.85rem; color: #64748b; margin-top: 0.25rem; }",
-    # Grouped value-diff blocks
-    ".ks-group { border: 1px solid #e5e7eb; border-radius: 6px; margin: 0 0 0.5rem; background: #fff; overflow: hidden; }",
-    ".ks-group[open] { box-shadow: 0 1px 2px rgba(0,0,0,0.04); }",
-    ".ks-group-summary { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; cursor: pointer; user-select: none; font-size: 0.88rem; flex-wrap: wrap; }",
-    ".ks-group-summary:hover { background: #f8fafc; }",
+    ".ks-toc-count { font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); color: var(--ks-muted); font-variant-numeric: tabular-nums; padding: 0 0.3rem; border: 1px solid var(--ks-rule); border-radius: 2px; background: var(--ks-card); }",
+    ".ks-toc-count-warn { color: var(--ks-vermillion); border-color: var(--ks-vermillion); }",
+    # ---- Main canvas ----------------------------------------------------
+    ".ks-main { margin-left: 232px; padding: 1.75rem 2.25rem 3rem; max-width: 1360px; }",
+    # ---- Hero header ----------------------------------------------------
+    ".ks-header { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 1.5rem; padding-bottom: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--ks-ink); }",
+    ".ks-header::after { content: none; }",
+    ".ks-header h1 { margin: 0; font-family: var(--ks-font-body); font-weight: 600; font-size: var(--ks-fs-h1); line-height: 1.15; letter-spacing: -0.01em; color: var(--ks-ink); }",
+    ".ks-subtitle { margin: 0.4rem 0 0; color: var(--ks-ink-soft); font-size: var(--ks-fs-body); font-family: var(--ks-font-body); }",
+    # ---- Status pill ----------------------------------------------------
+    ".ks-status { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.6rem; border-radius: 2px; border: 1px solid var(--ks-ink); font-size: var(--ks-fs-micro); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; font-family: var(--ks-font-mono); background: var(--ks-card); color: var(--ks-ink); }",
+    ".ks-status-dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--ks-ink); }",
+    ".ks-status-pass { color: var(--ks-emerald); border-color: var(--ks-emerald); }",
+    ".ks-status-pass .ks-status-dot { background: var(--ks-emerald); }",
+    ".ks-status-diff { color: var(--ks-vermillion); border-color: var(--ks-vermillion); }",
+    ".ks-status-diff .ks-status-dot { background: var(--ks-vermillion); }",
+    # ---- Datasets : citation-style --------------------------------------
+    ".ks-datasets { display: grid; grid-template-columns: 1fr auto 1fr; gap: 1.5rem; align-items: stretch; margin-bottom: 1.5rem; }",
+    ".ks-dscard { background: transparent; border: 0; border-top: 1px solid var(--ks-rule); padding: 0.75rem 0 0; position: relative; }",
+    ".ks-dscard::before { content: ''; position: absolute; top: -1px; left: 0; width: 32px; height: 2px; background: var(--ks-ink); }",
+    ".ks-dscard-comp::before { background: var(--ks-ink); }",
+    ".ks-dscard-label { font-family: var(--ks-font-mono); font-size: var(--ks-fs-meta); color: var(--ks-muted); text-transform: uppercase; letter-spacing: 0.1em; }",
+    ".ks-dscard-name { font-family: var(--ks-font-body); font-weight: 600; font-size: 1rem; line-height: 1.2; margin-top: 0.25rem; color: var(--ks-ink); word-break: break-word; }",
+    ".ks-dscard-dim { color: var(--ks-ink-soft); font-size: var(--ks-fs-meta); margin-top: 0.4rem; font-family: var(--ks-font-mono); font-variant-numeric: tabular-nums; }",
+    ".ks-arrow { font-family: var(--ks-font-body); font-size: 1.4rem; color: var(--ks-muted); align-self: center; line-height: 1; }",
+    # ---- Verdict --------------------------------------------------------
+    ".ks-verdict { background: var(--ks-card); border: 1px solid var(--ks-rule); border-left: 3px solid var(--ks-ink); padding: 0.75rem 1rem; margin-bottom: 1rem; }",
+    ".ks-verdict-label { font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); color: var(--ks-muted); text-transform: uppercase; letter-spacing: 0.08em; }",
+    ".ks-verdict-text { font-family: var(--ks-font-body); font-weight: 500; font-size: var(--ks-fs-body); line-height: 1.4; margin-top: 0.25rem; color: var(--ks-ink); }",
+    ".ks-verdict-bar { height: 2px; background: var(--ks-rule-soft); margin-top: 0.8rem; overflow: hidden; }",
+    ".ks-verdict-bar-fill { height: 100%; background: var(--ks-emerald); transition: width 0.3s ease; }",
+    ".ks-verdict-ok { border-left-color: var(--ks-emerald); }",
+    ".ks-verdict-info { border-left-color: var(--ks-ink-soft); }",
+    ".ks-verdict-warn { border-left-color: var(--ks-amber); }",
+    ".ks-verdict-critical { border-left-color: var(--ks-vermillion); }",
+    ".ks-verdict-critical .ks-verdict-bar-fill { background: var(--ks-vermillion); }",
+    ".ks-verdict-warn .ks-verdict-bar-fill { background: var(--ks-amber); }",
+    # ---- Recommendations ------------------------------------------------
+    ".ks-recs { background: var(--ks-card); border: 1px solid var(--ks-rule); padding: 0.75rem 1rem; margin-bottom: 1.1rem; }",
+    ".ks-recs-label { font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); color: var(--ks-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }",
+    ".ks-recs-list { list-style: none; margin: 0; padding: 0; }",
+    ".ks-rec-item { display: flex; gap: 0.75rem; padding: 0.55rem 0; border-top: 1px solid var(--ks-rule-soft); }",
+    ".ks-rec-item:first-child { border-top: 0; padding-top: 0.1rem; }",
+    ".ks-rec-badge { flex: 0 0 auto; padding: 0.05rem 0.4rem; font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; height: fit-content; margin-top: 0.1rem; border: 1px solid var(--ks-rule); color: var(--ks-ink-soft); background: var(--ks-card); border-radius: 2px; }",
+    ".ks-rec-critical .ks-rec-badge { color: var(--ks-vermillion); border-color: var(--ks-vermillion); }",
+    ".ks-rec-warn .ks-rec-badge { color: var(--ks-amber); border-color: var(--ks-amber); }",
+    ".ks-rec-info .ks-rec-badge { color: var(--ks-ink-soft); border-color: var(--ks-rule); }",
+    ".ks-rec-ok .ks-rec-badge { color: var(--ks-emerald); border-color: var(--ks-emerald); }",
+    ".ks-rec-body { flex: 1 1 auto; min-width: 0; }",
+    ".ks-rec-title { font-weight: 600; color: var(--ks-ink); font-size: var(--ks-fs-body); }",
+    ".ks-rec-msg { color: var(--ks-ink-soft); font-size: var(--ks-fs-table); margin-top: 0.15rem; line-height: 1.5; }",
+    ".ks-rec-action { color: var(--ks-ink); font-size: var(--ks-fs-table); margin-top: 0.25rem; }",
+    ".ks-rec-action strong { color: var(--ks-ink); font-weight: 600; }",
+    # ---- KPIs -----------------------------------------------------------
+    ".ks-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 0; margin-bottom: 1.25rem; border-top: 1px solid var(--ks-ink); border-bottom: 1px solid var(--ks-ink); background: var(--ks-card); }",
+    ".ks-kpi { padding: 0.75rem 0.9rem 0.85rem; border-right: 1px solid var(--ks-rule); position: relative; }",
+    ".ks-kpi:last-child { border-right: 0; }",
+    ".ks-kpi-value { font-family: var(--ks-font-body); font-size: var(--ks-fs-kpi); font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1; color: var(--ks-ink); letter-spacing: -0.01em; }",
+    ".ks-kpi-label { color: var(--ks-ink-soft); font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.4rem; }",
+    ".ks-kpi-hint { color: var(--ks-muted); font-size: var(--ks-fs-micro); margin-top: 0.15rem; font-family: var(--ks-font-body); }",
+    ".ks-kpi-ok::before { content: ''; position: absolute; top: -1px; left: 0; right: 0; height: 2px; background: var(--ks-emerald); }",
+    ".ks-kpi-warn::before { content: ''; position: absolute; top: -1px; left: 0; right: 0; height: 2px; background: var(--ks-vermillion); }",
+    ".ks-kpi-warn .ks-kpi-value { color: var(--ks-vermillion); }",
+    ".ks-kpi-neutral .ks-kpi-value { color: var(--ks-ink-soft); }",
+    # ---- Mini cards -----------------------------------------------------
+    ".ks-minis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem; }",
+    ".ks-mini { background: var(--ks-card); border: 1px solid var(--ks-rule); padding: 0.8rem 1rem; }",
+    ".ks-mini-value { font-family: var(--ks-font-body); font-weight: 600; font-size: 1.25rem; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--ks-ink); }",
+    ".ks-mini-label { font-family: var(--ks-font-mono); font-size: var(--ks-fs-meta); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 0.4rem; color: var(--ks-ink-soft); }",
+    ".ks-mini-hint { color: var(--ks-muted); font-size: var(--ks-fs-meta); margin-top: 0.2rem; font-family: var(--ks-font-body); }",
+    ".ks-mini-ok { border-top: 2px solid var(--ks-emerald); }",
+    ".ks-mini-warn { border-top: 2px solid var(--ks-vermillion); }",
+    # ---- Sections -------------------------------------------------------
+    ".ks-section { background: var(--ks-card); border: 1px solid var(--ks-rule); padding: 0.95rem 1.15rem 1.15rem; margin-bottom: 1rem; scroll-margin-top: 1rem; position: relative; }",
+    ".ks-section::before { content: ''; position: absolute; top: -1px; left: -1px; width: 24px; height: 2px; background: var(--ks-ink); }",
+    ".ks-section-head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.6rem; row-gap: 0.45rem; margin-bottom: 0.7rem; padding-bottom: 0.55rem; border-bottom: 1px solid var(--ks-rule); }",
+    ".ks-section-head h2 { margin: 0; font-family: var(--ks-font-body); font-weight: 600; font-size: var(--ks-fs-h2); line-height: 1.2; color: var(--ks-ink); letter-spacing: -0.005em; flex: 0 0 auto; }",
+    ".ks-section-blurb { flex: 1 1 100%; margin: 0; color: var(--ks-ink-soft); font-size: var(--ks-fs-body); line-height: 1.55; max-width: 90ch; }",
+    ".ks-section-blurb code { background: var(--ks-paper); padding: 0.05rem 0.35rem; border: 1px solid var(--ks-rule); font-size: 0.78rem; }",
+    # ---- Pills ----------------------------------------------------------
+    ".ks-pill { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 2px; font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.45; border: 1px solid var(--ks-rule); background: var(--ks-card); color: var(--ks-ink-soft); white-space: nowrap; }",
+    ".ks-pill-ok { color: var(--ks-emerald); border-color: var(--ks-emerald); background: var(--ks-card); }",
+    ".ks-pill-warn { color: var(--ks-vermillion); border-color: var(--ks-vermillion); background: var(--ks-card); }",
+    ".ks-pill-info { color: var(--ks-ink); border-color: var(--ks-rule); background: var(--ks-paper); }",
+    ".ks-pill-neutral { color: var(--ks-ink-soft); background: var(--ks-paper); border-color: var(--ks-rule); }",
+    # ---- Tick / cross / dim --------------------------------------------
+    ".ks-tick { color: var(--ks-emerald); font-weight: 600; font-size: 0.85rem; }",
+    ".ks-cross { color: var(--ks-vermillion); font-weight: 600; font-size: 0.85rem; }",
+    ".ks-cross-note { color: var(--ks-vermillion); font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); margin-left: 0.25rem; }",
+    ".ks-dim { color: var(--ks-muted); }",
+    # ---- Diff colours ---------------------------------------------------
+    ".ks-diff-pos { color: var(--ks-vermillion); font-family: var(--ks-font-mono); font-weight: 500; }",
+    ".ks-diff-neg { color: var(--ks-ink); font-family: var(--ks-font-mono); font-weight: 500; }",
+    # ---- Note chips (must wrap; never truncate) -------------------------
+    ".ks-note-chip { display: inline-block; background: var(--ks-paper); color: var(--ks-ink-soft); border: 1px solid var(--ks-rule); padding: 0.02rem 0.4rem; border-radius: 2px; font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); font-weight: 500; letter-spacing: 0; line-height: 1.5; margin: 0.08rem 0.12rem 0.08rem 0; white-space: normal; word-break: break-word; max-width: 100%; }",
+    ".ks-note-chip-na { background: var(--ks-card); color: var(--ks-ink); border-color: var(--ks-ink-soft); font-weight: 600; }",
+    # ---- Reactable theming ---------------------------------------------
+    ".ks-section .ReactTable, .ks-section .rt-table { font-family: var(--ks-font-body); }",
+    ".ks-section .rt-table { overflow: auto; max-height: 72vh; border: 1px solid var(--ks-rule); }",
+    ".ks-section .rt-thead { position: sticky; top: 0; z-index: 3; background: var(--ks-paper); border-bottom: 1px solid var(--ks-ink); }",
+    ".ks-section .rt-th { font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ks-ink); padding: 0.3rem 0.5rem; border-right: 1px solid var(--ks-rule-soft); }",
+    ".ks-section .rt-th-group { background: var(--ks-paper-soft); }",
+    ".ks-section .rt-td { font-size: var(--ks-fs-table); padding: 0.22rem 0.5rem; border-right: 1px solid var(--ks-rule-soft); color: var(--ks-ink); line-height: 1.35; white-space: normal; word-break: break-word; }",
+    ".ks-section .rt-td-inner { white-space: normal; overflow: visible; text-overflow: clip; }",
+    ".ks-section .rt-tr:nth-child(even) .rt-td { background: var(--ks-paper-soft); }",
+    ".ks-section .rt-tr:hover .rt-td { background: #efece2 !important; }",
+    ".ks-section .rt-td-numeric { font-family: var(--ks-font-mono); font-variant-numeric: tabular-nums; }",
+    ".ks-section .rt-search { font-family: var(--ks-font-mono); font-size: var(--ks-fs-meta); padding: 0.25rem 0.5rem; border: 1px solid var(--ks-rule); border-radius: 2px; background: var(--ks-card); color: var(--ks-ink); }",
+    ".ks-section .rt-search:focus { outline: 1px solid var(--ks-ink); outline-offset: -1px; border-color: var(--ks-ink); }",
+    ".ks-section .rt-pagination { font-family: var(--ks-font-mono); font-size: var(--ks-fs-meta); color: var(--ks-ink-soft); padding: 0.4rem 0.5rem; }",
+    ".ks-section .rt-page-button { font-family: var(--ks-font-mono); font-size: var(--ks-fs-meta); }",
+    ".ks-section .rt-page-button-content { padding: 2px 6px; }",
+    ".ks-section .rt-page-info { font-size: var(--ks-fs-meta); }",
+    ".ks-section .rt-page-size { font-size: var(--ks-fs-meta); }",
+    # ---- Per-column header filter inputs -------------------------------
+    ".ks-col-filter { width: 100%; box-sizing: border-box; font-family: var(--ks-font-mono); font-size: 10.5px; padding: 1px 3px; border: 1px solid var(--ks-rule); border-radius: 2px; background: var(--ks-card); color: var(--ks-ink-soft); font-variant-numeric: tabular-nums; font-weight: 400; }",
+    ".ks-col-filter:focus { outline: 1px solid var(--ks-ink); outline-offset: -1px; border-color: var(--ks-ink); }",
+    "select.ks-col-filter { appearance: auto; padding-right: 16px; cursor: pointer; }",
+    # ---- Sample notice -------------------------------------------------
+    ".ks-sample-notice { background: var(--ks-paper); color: var(--ks-ink-soft); border: 1px solid var(--ks-rule); border-left: 3px solid var(--ks-ink-soft); padding: 0.6rem 0.85rem; font-size: var(--ks-fs-body); margin: 0 0 0.75rem; font-family: var(--ks-font-body); }",
+    ".ks-sample-notice code { background: var(--ks-card); padding: 0.05rem 0.35rem; border: 1px solid var(--ks-rule); font-size: 0.78rem; }",
+    # ---- Column selector -----------------------------------------------
+    ".ks-col-selector { display: flex; align-items: center; gap: 0.55rem; margin: 0 0 0.7rem; flex-wrap: wrap; }",
+    ".ks-col-selector label { font-family: var(--ks-font-mono); font-size: var(--ks-fs-meta); color: var(--ks-ink); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }",
+    ".ks-col-selector select { font-family: var(--ks-font-mono); padding: 0.32rem 0.5rem; font-size: var(--ks-fs-body); border: 1px solid var(--ks-ink); border-radius: 2px; background: var(--ks-card); min-width: 260px; max-width: 100%; font-variant-numeric: tabular-nums; }",
+    ".ks-col-selector select:focus { outline: 1px solid var(--ks-ink); outline-offset: 1px; }",
+    # ---- Row-matching section ------------------------------------------
+    ".ks-banner { padding: 0.85rem 1.05rem; margin: 0 0 0.9rem; border: 1px solid var(--ks-rule); border-left-width: 3px; border-left-style: solid; background: var(--ks-card); }",
+    ".ks-banner-title { font-family: var(--ks-font-body); font-weight: 600; font-size: 1rem; margin-bottom: 0.25rem; color: var(--ks-ink); }",
+    ".ks-banner-body { font-size: var(--ks-fs-body); line-height: 1.55; color: var(--ks-ink-soft); }",
+    ".ks-banner-body code { background: var(--ks-paper); padding: 0.05rem 0.35rem; border: 1px solid var(--ks-rule); font-size: 0.78rem; }",
+    ".ks-banner-ok { border-left-color: var(--ks-emerald); }",
+    ".ks-banner-warn { border-left-color: var(--ks-amber); }",
+    ".ks-rm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0; border: 1px solid var(--ks-rule); margin: 0 0 0.9rem; background: var(--ks-card); }",
+    ".ks-rm-stat { padding: 0.6rem 0.85rem; border-right: 1px solid var(--ks-rule); }",
+    ".ks-rm-stat:last-child { border-right: 0; }",
+    ".ks-rm-stat-value { font-family: var(--ks-font-body); font-weight: 500; font-size: 1.15rem; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ks-ink); }",
+    ".ks-rm-stat-label { font-family: var(--ks-font-mono); font-size: var(--ks-fs-meta); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ks-muted); margin-top: 0.35rem; }",
+    ".ks-rm-stat-ok .ks-rm-stat-value { color: var(--ks-emerald); }",
+    ".ks-rm-stat-warn .ks-rm-stat-value { color: var(--ks-vermillion); }",
+    ".ks-keycard { background: var(--ks-paper); border: 1px solid var(--ks-rule); padding: 0.7rem 0.95rem; margin: 0 0 0.9rem; }",
+    ".ks-keycard-label { font-family: var(--ks-font-mono); font-size: var(--ks-fs-meta); color: var(--ks-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }",
+    ".ks-keycard-list { margin: 0.35rem 0 0; padding-left: 1.1rem; font-size: var(--ks-fs-body); }",
+    ".ks-keycard-list code { background: var(--ks-card); padding: 0.08rem 0.35rem; border: 1px solid var(--ks-rule); font-size: 0.8rem; }",
+    ".ks-keycard-empty { font-size: var(--ks-fs-body); color: var(--ks-muted); margin-top: 0.3rem; font-family: var(--ks-font-body); }",
+    # ---- Grouped value-diff blocks -------------------------------------
+    ".ks-group { border: 1px solid var(--ks-rule); margin: 0 0 0.4rem; background: var(--ks-card); overflow: hidden; }",
+    ".ks-group[open] { border-color: var(--ks-ink); }",
+    ".ks-group-summary { display: flex; align-items: center; gap: 0.55rem; padding: 0.45rem 0.75rem; cursor: pointer; user-select: none; font-size: var(--ks-fs-body); flex-wrap: wrap; }",
+    ".ks-group-summary:hover { background: var(--ks-paper); }",
     ".ks-group-summary::-webkit-details-marker { display: none; }",
-    ".ks-group-summary::before { content: '\u25B8'; display: inline-block; transition: transform 0.15s; color: #64748b; font-size: 0.75rem; }",
-    ".ks-group[open] > .ks-group-summary::before { transform: rotate(90deg); }",
-    ".ks-group-label { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }",
-    ".ks-group-chip { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; background: #fee2e2; color: #991b1b; }",
-    ".ks-group-chip-neutral { background: #e2e8f0; color: #334155; }",
-    ".ks-group-chip-warn { background: #fef3c7; color: #92400e; }",
-    ".ks-group-body { padding: 0.5rem 0.75rem 0.75rem; border-top: 1px solid #f1f5f9; }",
-    # Empty / warning
-    ".ks-empty em { color: #94a3b8; font-size: 0.9rem; }",
-    ".ks-warning { color: #b35900; font-style: italic; font-size: 0.82rem; margin: 0 0 0.5rem; }",
-    # KV table
-    ".ks-kv { width: 100%; border-collapse: collapse; font-size: 0.85rem; }",
-    ".ks-kv th { text-align: left; padding: 0.35rem 1rem 0.35rem 0; color: #5b6b7c; font-weight: 500; vertical-align: top; width: 30%; }",
-    ".ks-kv td { padding: 0.35rem 0; word-break: break-all; }",
-    ".ks-kv code { background: #f3f5f8; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.82rem; }",
-    # Legend (pattern footnote)
-    ".ks-legend { margin-top: 1rem; padding: 0.75rem 1rem; background: #f8fafc; border: 1px solid #e3e8ee; border-radius: 6px; font-size: 0.82rem; }",
-    ".ks-legend-title { font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; margin-bottom: 0.5rem; }",
+    ".ks-group-summary::before { content: '+'; display: inline-block; transition: transform 0.15s; color: var(--ks-ink); font-family: var(--ks-font-mono); font-weight: 600; font-size: 0.95rem; width: 0.9rem; text-align: center; }",
+    ".ks-group[open] > .ks-group-summary::before { content: '\u2212'; }",
+    ".ks-group-label { font-weight: 500; font-family: var(--ks-font-mono); font-size: var(--ks-fs-table); color: var(--ks-ink); }",
+    ".ks-group-chip { display: inline-block; padding: 0.08rem 0.45rem; font-family: var(--ks-font-mono); font-size: var(--ks-fs-micro); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; background: var(--ks-card); color: var(--ks-vermillion); border: 1px solid var(--ks-vermillion); border-radius: 2px; white-space: nowrap; }",
+    ".ks-group-chip-neutral { background: var(--ks-paper); color: var(--ks-ink-soft); border-color: var(--ks-rule); }",
+    ".ks-group-chip-warn { background: var(--ks-card); color: var(--ks-amber); border-color: var(--ks-amber); }",
+    ".ks-group-body { padding: 0.6rem 0.85rem 0.85rem; border-top: 1px solid var(--ks-rule); }",
+    # ---- Empty / warning -----------------------------------------------
+    ".ks-empty em { color: var(--ks-muted); font-family: var(--ks-font-body); font-style: normal; font-size: var(--ks-fs-body); }",
+    ".ks-warning { color: var(--ks-amber); font-family: var(--ks-font-body); font-size: var(--ks-fs-body); margin: 0 0 0.5rem; }",
+    # ---- KV table ------------------------------------------------------
+    ".ks-kv { width: 100%; border-collapse: collapse; font-size: var(--ks-fs-body); }",
+    ".ks-kv th { text-align: left; padding: 0.4rem 1rem 0.4rem 0; color: var(--ks-muted); font-family: var(--ks-font-mono); font-size: var(--ks-fs-meta); font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; vertical-align: top; width: 30%; border-bottom: 1px solid var(--ks-rule-soft); }",
+    ".ks-kv td { padding: 0.4rem 0; word-break: break-all; border-bottom: 1px solid var(--ks-rule-soft); }",
+    ".ks-kv code { background: var(--ks-paper); padding: 0.1rem 0.4rem; border: 1px solid var(--ks-rule); font-size: 0.8rem; }",
+    # ---- Legend --------------------------------------------------------
+    ".ks-legend { margin-top: 1.1rem; padding: 0.8rem 1.05rem; background: var(--ks-paper); border: 1px solid var(--ks-rule); font-size: var(--ks-fs-body); }",
+    ".ks-legend-title { font-family: var(--ks-font-mono); font-weight: 600; color: var(--ks-ink); text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--ks-fs-meta); margin-bottom: 0.5rem; }",
     ".ks-legend-list { list-style: none; margin: 0; padding: 0; }",
-    ".ks-legend-list li { display: flex; align-items: flex-start; gap: 0.6rem; margin: 0.35rem 0; }",
+    ".ks-legend-list li { display: flex; align-items: flex-start; gap: 0.65rem; margin: 0.4rem 0; }",
     ".ks-legend-list li .ks-pill { flex: 0 0 auto; margin-top: 0.05rem; }",
-    ".ks-legend-text { color: #1f2933; line-height: 1.5; }",
-    ".ks-legend-text code { background: #eef2f7; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }",
-    # Footer
-    ".ks-footer { color: #94a3b8; font-size: 0.78rem; text-align: right; margin-top: 1.5rem; padding-top: 0.75rem; border-top: 1px solid #eef1f5; }",
-    # Responsive
-    "@media (max-width: 880px) {",
-    "  .ks-toc { position: static; width: auto; }",
-    "  .ks-main { margin-left: 0; padding: 1rem; }",
+    ".ks-legend-text { color: var(--ks-ink-soft); line-height: 1.55; }",
+    ".ks-legend-text code { background: var(--ks-card); padding: 0.05rem 0.35rem; border: 1px solid var(--ks-rule); font-size: 0.78rem; }",
+    # ---- Footer --------------------------------------------------------
+    ".ks-footer { color: var(--ks-muted); font-family: var(--ks-font-body); font-size: var(--ks-fs-body); text-align: right; margin-top: 1.75rem; padding-top: 0.85rem; border-top: 1px solid var(--ks-rule); }",
+    # ---- Responsive ----------------------------------------------------
+    "@media (max-width: 900px) {",
+    "  .ks-toc { position: static; width: auto; border-right: 0; border-bottom: 1px solid var(--ks-rule); padding: 1rem; }",
+    "  .ks-main { margin-left: 0; padding: 1.25rem; }",
     "  .ks-datasets { grid-template-columns: 1fr; }",
     "  .ks-arrow { display: none; }",
+    "  .ks-kpis { grid-template-columns: repeat(2, 1fr); }",
+    "  .ks-kpi { border-bottom: 1px solid var(--ks-rule); }",
     "}",
     "@media print {",
     "  body { background: #fff; }",
     "  .ks-toc { display: none; }",
-    "  .ks-main { margin-left: 0; max-width: 100%; }",
-    "  .ks-section { box-shadow: none; }",
+    "  .ks-main { margin-left: 0; max-width: 100%; padding: 0; }",
+    "  .ks-section { break-inside: avoid; }",
     "}",
     sep = "\n"
   )

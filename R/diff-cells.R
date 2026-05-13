@@ -31,12 +31,15 @@ ks_cells_equal <- function(b, c, kind, tol, options) {
     b == c
   )
 
-  # Apply NA semantics
-  out <- ifelse(
-    na_either,
-    if (options$na_equal) na_eq else FALSE,
-    eq
-  )
+  # Apply NA semantics without ifelse (which evaluates both branches).
+  out <- eq
+  if (any(na_either)) {
+    if (options$na_equal) {
+      out[na_either] <- na_eq[na_either]
+    } else {
+      out[na_either] <- FALSE
+    }
+  }
   out[is.na(out)] <- FALSE
   as.logical(out)
 }
@@ -94,14 +97,19 @@ ks_value_diff_one <- function(
   pt <- ks_common_ptype(base_col, comp_col, mode = "safe")
   if (is.null(pt$ptype)) {
     # Type incompatibility: emit one row per matched row flagging the kind.
+    bb <- base_col[matched$base_row]
+    cc <- comp_col[matched$comp_row]
     return(tibble::tibble(
       key_id = matched$key_id,
+      base_row = matched$base_row,
+      comp_row = matched$comp_row,
       column_base = base_name,
       column_comp = comp_name,
       kind = "type_mismatch",
-      base = format_cell(base_col[matched$base_row]),
-      comp = format_cell(comp_col[matched$comp_row]),
+      base = format_cell(bb),
+      comp = format_cell(cc),
       diff = NA_real_,
+      na_flow = ks_na_flow(bb, cc),
       note = pt$note
     ))
   }
@@ -119,9 +127,11 @@ ks_value_diff_one <- function(
 
   diff_num <- ks_diff_numeric(b, c, kind, unequal)
 
+  b_u <- b[unequal]
+  c_u <- c[unequal]
   notes <- ks_explain_diffs(
-    b[unequal],
-    c[unequal],
+    b_u,
+    c_u,
     kind = kind,
     diff_num = diff_num,
     type_note = if (is.na(pt$note)) NA_character_ else pt$note
@@ -129,12 +139,15 @@ ks_value_diff_one <- function(
 
   tibble::tibble(
     key_id = matched$key_id[unequal],
+    base_row = matched$base_row[unequal],
+    comp_row = matched$comp_row[unequal],
     column_base = base_name,
     column_comp = comp_name,
     kind = kind,
-    base = format_cell(b[unequal]),
-    comp = format_cell(c[unequal]),
+    base = format_cell(b_u),
+    comp = format_cell(c_u),
     diff = diff_num,
+    na_flow = ks_na_flow(b_u, c_u),
     note = notes
   )
 }
@@ -215,6 +228,21 @@ ks_explain_diffs <- function(b, c, kind, diff_num, type_note = NA_character_) {
   if (kind %in% c("character", "factor", "labelled")) {
     bs <- enc2utf8(as.character(b))
     cs <- enc2utf8(as.character(c))
+    # Precompute transforms once on the whole vector. Inside the loop we
+    # only do scalar comparisons; no per-element calls into stringi/iconv.
+    b_trim <- stringi::stri_trim_both(bs)
+    c_trim <- stringi::stri_trim_both(cs)
+    b_collapse <- gsub("\\s+", " ", bs)
+    c_collapse <- gsub("\\s+", " ", cs)
+    b_lower <- tolower(bs)
+    c_lower <- tolower(cs)
+    b_ascii_ok <- !is.na(iconv(bs, "UTF-8", "ASCII", sub = NA))
+    c_ascii_ok <- !is.na(iconv(cs, "UTF-8", "ASCII", sub = NA))
+    ctrl_re <- "[\u0001-\u0008\u000B\u000C\u000E-\u001F]"
+    b_ctrl <- grepl(ctrl_re, bs)
+    c_ctrl <- grepl(ctrl_re, cs)
+    nch_b <- nchar(bs)
+    nch_c <- nchar(cs)
     for (i in seq_len(n)) {
       bi <- bs[[i]]
       ci <- cs[[i]]
@@ -232,13 +260,13 @@ ks_explain_diffs <- function(b, c, kind, diff_num, type_note = NA_character_) {
           cues <- c(cues, "compare is empty string")
         }
 
-        b_trim <- stringi::stri_trim_both(bi)
-        c_trim <- stringi::stri_trim_both(ci)
-        if (!identical(bi, b_trim) || !identical(ci, c_trim)) {
-          if (identical(b_trim, c_trim)) {
+        bti <- b_trim[[i]]
+        cti <- c_trim[[i]]
+        if (!identical(bi, bti) || !identical(ci, cti)) {
+          if (identical(bti, cti)) {
             sides <- character()
-            if (!identical(bi, b_trim)) sides <- c(sides, "base")
-            if (!identical(ci, c_trim)) sides <- c(sides, "compare")
+            if (!identical(bi, bti)) sides <- c(sides, "base")
+            if (!identical(ci, cti)) sides <- c(sides, "compare")
             cues <- c(cues, paste0("whitespace padding on ", paste(sides, collapse = " & ")))
           } else {
             cues <- c(cues, "leading/trailing whitespace differs")
@@ -246,35 +274,31 @@ ks_explain_diffs <- function(b, c, kind, diff_num, type_note = NA_character_) {
         } else {
           # internal whitespace
           if (!identical(bi, ci) &&
-              identical(gsub("\\s+", " ", bi), gsub("\\s+", " ", ci))) {
+              identical(b_collapse[[i]], c_collapse[[i]])) {
             cues <- c(cues, "internal whitespace differs")
           }
         }
 
         if (!any(grepl("whitespace", cues, fixed = TRUE)) &&
             !identical(bi, ci) &&
-            identical(tolower(bi), tolower(ci))) {
+            identical(b_lower[[i]], c_lower[[i]])) {
           cues <- c(cues, "letter case differs")
         }
 
         # Non-printable / non-ASCII
-        if (any(grepl("[\u0001-\u0008\u000B\u000C\u000E-\u001F]", c(bi, ci)))) {
+        if (b_ctrl[[i]] || c_ctrl[[i]]) {
           cues <- c(cues, "contains control characters")
-        } else {
-          b_ascii <- !is.na(iconv(bi, "UTF-8", "ASCII", sub = NA))
-          c_ascii <- !is.na(iconv(ci, "UTF-8", "ASCII", sub = NA))
-          if (xor(b_ascii, c_ascii)) {
-            cues <- c(
-              cues,
-              if (b_ascii) "compare contains non-ASCII chars" else "base contains non-ASCII chars"
-            )
-          }
+        } else if (xor(b_ascii_ok[[i]], c_ascii_ok[[i]])) {
+          cues <- c(
+            cues,
+            if (b_ascii_ok[[i]]) "compare contains non-ASCII chars" else "base contains non-ASCII chars"
+          )
         }
 
-        # Length differences worth pointing out (when neither whitespace nor case)
+        # Length differences worth pointing out (when nothing else)
         if (length(cues) == 0L && !identical(bi, ci)) {
-          if (nchar(bi) != nchar(ci)) {
-            cues <- c(cues, sprintf("length differs (%d vs %d)", nchar(bi), nchar(ci)))
+          if (nch_b[[i]] != nch_c[[i]]) {
+            cues <- c(cues, sprintf("length differs (%d vs %d)", nch_b[[i]], nch_c[[i]]))
           }
         }
       }
@@ -385,12 +409,33 @@ format_cell <- function(x) {
 ks_empty_value_diff <- function() {
   tibble::tibble(
     key_id = integer(),
+    base_row = integer(),
+    comp_row = integer(),
     column_base = character(),
     column_comp = character(),
     kind = character(),
     base = character(),
     comp = character(),
     diff = numeric(),
+    na_flow = character(),
     note = character()
   )
+}
+
+#' Internal: classify the NA-flow of a cell diff
+#'
+#' Returns one of `"value_to_na"`, `"na_to_value"`, `"both_na_differ"`
+#' (e.g. SAS special missings that disagree), or `NA_character_` when
+#' both sides are non-missing.
+#'
+#' @keywords internal
+#' @noRd
+ks_na_flow <- function(b, c) {
+  bna <- is.na(b)
+  cna <- is.na(c)
+  out <- rep(NA_character_, length(b))
+  out[!bna & cna] <- "value_to_na"
+  out[bna & !cna] <- "na_to_value"
+  out[bna & cna] <- "both_na_differ"
+  out
 }

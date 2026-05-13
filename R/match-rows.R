@@ -56,13 +56,12 @@ ks_match_rows_position <- function(base, comp) {
       status = character()
     ))
   }
-  base_row <- ifelse(seq_len(n) <= nb, seq_len(n), NA_integer_)
-  comp_row <- ifelse(seq_len(n) <= nc, seq_len(n), NA_integer_)
-  status <- dplyr::case_when(
-    !is.na(base_row) & !is.na(comp_row) ~ "matched",
-    is.na(comp_row) ~ "base_only",
-    TRUE ~ "comp_only"
-  )
+  # Pad shorter side with NA without per-element ifelse / case_when.
+  base_row <- if (nb >= n) seq_len(n) else c(seq_len(nb), rep(NA_integer_, n - nb))
+  comp_row <- if (nc >= n) seq_len(n) else c(seq_len(nc), rep(NA_integer_, n - nc))
+  status <- rep_len("matched", n)
+  if (nb < n) status[(nb + 1L):n] <- "comp_only"
+  if (nc < n) status[(nc + 1L):n] <- "base_only"
   tibble::tibble(
     key_id = seq_len(n),
     base_row = base_row,
@@ -274,14 +273,19 @@ ks_build_dup_summary <- function(uniq_check, bkey, ckey) {
 
   # Build a human-readable label per key row by joining its column values
   # with " | ". Columns of `uk` are always atomic (we renamed and selected
-  # them in the caller).
-  key_label <- vapply(seq_len(nrow(uk)), function(i) {
-    parts <- vapply(seq_along(uk), function(j) {
-      v <- uk[[j]][i]
-      if (is.na(v)) "<NA>" else format(v, trim = TRUE)
-    }, character(1L))
-    paste(parts, collapse = " | ")
-  }, character(1L))
+  # them in the caller). Vectorize: format each column once.
+  formatted <- vector("list", ncol(uk))
+  for (j in seq_len(ncol(uk))) {
+    v <- uk[[j]]
+    fv <- format(v, trim = TRUE)
+    fv[is.na(v)] <- "<NA>"
+    formatted[[j]] <- fv
+  }
+  key_label <- if (length(formatted) == 1L) {
+    formatted[[1L]]
+  } else {
+    do.call(paste, c(formatted, sep = " | "))
+  }
 
   tibble::tibble(
     key = key_label,
@@ -320,13 +324,13 @@ ks_inform_dup <- function(strategy,
   ks_inform(msg, class = "ksCompare_dup_keys_resolved")
 }
 
-ks_collapse_dup <- function(key_df, which = c("first", "last")) {
-  which <- match.arg(which)
+ks_collapse_dup <- function(key_df, keep_which = c("first", "last")) {
+  keep_which <- match.arg(keep_which)
   ids <- vctrs::vec_group_id(key_df)
-  if (which == "first") {
-    keep <- !duplicated(ids)
+  keep <- if (keep_which == "first") {
+    !duplicated(ids)
   } else {
-    keep <- !duplicated(ids, fromLast = TRUE)
+    !duplicated(ids, fromLast = TRUE)
   }
   which(keep)
 }
@@ -348,14 +352,23 @@ ks_match_rows_keep_all <- function(bkey, ckey) {
   }
   bgrp <- vctrs::vec_match(bkey, union_keys)
   cgrp <- vctrs::vec_match(ckey, union_keys)
-  parts <- list()
+  # Pre-split row indices by group so we avoid O(n_keys * n_rows) work.
+  nu <- nrow(union_keys)
+  lvl <- seq_len(nu)
+  bsplit <- split(seq_len(nrow(bkey)), factor(bgrp, levels = lvl))
+  csplit <- split(seq_len(nrow(ckey)), factor(cgrp, levels = lvl))
+  # Pre-allocate; each key contributes at most 3 parts (matched, base_only,
+  # comp_only). Avoids O(n^2) list-copy churn for many unique keys.
+  parts <- vector("list", nu * 3L)
+  pidx <- 0L
   next_id <- 1L
-  for (i in seq_len(nrow(union_keys))) {
-    bm <- which(bgrp == i)
-    cm <- which(cgrp == i)
-    nb <- length(bm); nc <- length(cm); n_pair <- min(nb, nc)
+  for (i in lvl) {
+    bm <- bsplit[[i]]
+    cm <- csplit[[i]]
+    nb <- length(bm); nc <- length(cm); n_pair <- if (nb < nc) nb else nc
     if (n_pair > 0L) {
-      parts[[length(parts) + 1L]] <- tibble::tibble(
+      pidx <- pidx + 1L
+      parts[[pidx]] <- tibble::tibble(
         key_id = seq.int(next_id, length.out = n_pair),
         base_row = bm[seq_len(n_pair)],
         comp_row = cm[seq_len(n_pair)],
@@ -365,7 +378,8 @@ ks_match_rows_keep_all <- function(bkey, ckey) {
     }
     if (nb > n_pair) {
       n_extra <- nb - n_pair
-      parts[[length(parts) + 1L]] <- tibble::tibble(
+      pidx <- pidx + 1L
+      parts[[pidx]] <- tibble::tibble(
         key_id = seq.int(next_id, length.out = n_extra),
         base_row = bm[(n_pair + 1L):nb],
         comp_row = rep(NA_integer_, n_extra),
@@ -375,7 +389,8 @@ ks_match_rows_keep_all <- function(bkey, ckey) {
     }
     if (nc > n_pair) {
       n_extra <- nc - n_pair
-      parts[[length(parts) + 1L]] <- tibble::tibble(
+      pidx <- pidx + 1L
+      parts[[pidx]] <- tibble::tibble(
         key_id = seq.int(next_id, length.out = n_extra),
         base_row = rep(NA_integer_, n_extra),
         comp_row = cm[(n_pair + 1L):nc],
@@ -384,7 +399,7 @@ ks_match_rows_keep_all <- function(bkey, ckey) {
       next_id <- next_id + n_extra
     }
   }
-  if (length(parts) == 0L) {
+  if (pidx == 0L) {
     return(tibble::tibble(
       key_id = integer(),
       base_row = integer(),
@@ -392,7 +407,7 @@ ks_match_rows_keep_all <- function(bkey, ckey) {
       status = character()
     ))
   }
-  vctrs::vec_rbind(!!!parts)
+  vctrs::vec_rbind(!!!parts[seq_len(pidx)])
 }
 
 ks_match_rows_all_pairs <- function(bkey, ckey) {
@@ -407,42 +422,48 @@ ks_match_rows_all_pairs <- function(bkey, ckey) {
   }
   bgrp <- vctrs::vec_match(bkey, union_keys)
   cgrp <- vctrs::vec_match(ckey, union_keys)
-  parts <- list()
+  nu <- nrow(union_keys)
+  lvl <- seq_len(nu)
+  bsplit <- split(seq_len(nrow(bkey)), factor(bgrp, levels = lvl))
+  csplit <- split(seq_len(nrow(ckey)), factor(cgrp, levels = lvl))
+  parts <- vector("list", nu)
+  pidx <- 0L
   next_id <- 1L
-  for (i in seq_len(nrow(union_keys))) {
-    bm <- which(bgrp == i)
-    cm <- which(cgrp == i)
-    if (length(bm) > 0L && length(cm) > 0L) {
-      grid <- expand.grid(b = bm, c = cm, KEEP.OUT.ATTRS = FALSE)
-      n <- nrow(grid)
-      parts[[length(parts) + 1L]] <- tibble::tibble(
+  for (i in lvl) {
+    bm <- bsplit[[i]]
+    cm <- csplit[[i]]
+    nb <- length(bm); nc <- length(cm)
+    if (nb > 0L && nc > 0L) {
+      n <- nb * nc
+      pidx <- pidx + 1L
+      parts[[pidx]] <- tibble::tibble(
         key_id = seq.int(next_id, length.out = n),
-        base_row = grid$b,
-        comp_row = grid$c,
+        base_row = rep(bm, each = nc),
+        comp_row = rep(cm, times = nb),
         status = rep_len("matched", n)
       )
       next_id <- next_id + n
-    } else if (length(bm) > 0L) {
-      n <- length(bm)
-      parts[[length(parts) + 1L]] <- tibble::tibble(
-        key_id = seq.int(next_id, length.out = n),
+    } else if (nb > 0L) {
+      pidx <- pidx + 1L
+      parts[[pidx]] <- tibble::tibble(
+        key_id = seq.int(next_id, length.out = nb),
         base_row = bm,
-        comp_row = rep(NA_integer_, n),
-        status = rep_len("base_only", n)
+        comp_row = rep(NA_integer_, nb),
+        status = rep_len("base_only", nb)
       )
-      next_id <- next_id + n
-    } else {
-      n <- length(cm)
-      parts[[length(parts) + 1L]] <- tibble::tibble(
-        key_id = seq.int(next_id, length.out = n),
-        base_row = rep(NA_integer_, n),
+      next_id <- next_id + nb
+    } else if (nc > 0L) {
+      pidx <- pidx + 1L
+      parts[[pidx]] <- tibble::tibble(
+        key_id = seq.int(next_id, length.out = nc),
+        base_row = rep(NA_integer_, nc),
         comp_row = cm,
-        status = rep_len("comp_only", n)
+        status = rep_len("comp_only", nc)
       )
-      next_id <- next_id + n
+      next_id <- next_id + nc
     }
   }
-  if (length(parts) == 0L) {
+  if (pidx == 0L) {
     return(tibble::tibble(
       key_id = integer(),
       base_row = integer(),
@@ -450,5 +471,5 @@ ks_match_rows_all_pairs <- function(bkey, ckey) {
       status = character()
     ))
   }
-  vctrs::vec_rbind(!!!parts)
+  vctrs::vec_rbind(!!!parts[seq_len(pidx)])
 }

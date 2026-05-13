@@ -18,13 +18,17 @@
 #'
 #' @keywords internal
 #' @noRd
-ks_detect_patterns <- function(value_diff, min_coverage = 0.5) {
-  empty <- tibble::tibble(
+ks_empty_pattern_summary <- function() {
+  tibble::tibble(
     column = character(),
     pattern = character(),
     coverage = numeric(),
     detail = character()
   )
+}
+
+ks_detect_patterns <- function(value_diff, min_coverage = 0.5) {
+  empty <- ks_empty_pattern_summary()
   if (nrow(value_diff) == 0L) {
     return(empty)
   }
@@ -337,7 +341,7 @@ ks_pat_temporal <- function(col, sub, kind) {
       sec <- d[ok][1L]
       if (sec != 0 && abs(sec %% 3600) < 1) {
         h <- sec / 3600
-        if (abs(h) <= 24) {
+        if (abs(h) <= 14) {
           out[[length(out) + 1L]] <- ks_pat_row(
             col, "tz_hour_offset", mean(ok),
             sprintf("%+dh constant offset (likely DST or timezone)",
@@ -390,7 +394,20 @@ ks_pat_string <- function(col, sub, kind) {
 
   bd <- b[diff]; cd <- cc[diff]
 
-  trim_eq <- stringi::stri_trim_both(bd) == stringi::stri_trim_both(cd)
+  # Compute each transform once on the whole diff slice; downstream checks
+  # become cheap vector comparisons against these caches.
+  b_trim <- stringi::stri_trim_both(bd)
+  c_trim <- stringi::stri_trim_both(cd)
+  b_nows <- gsub("\\s+", "", bd)
+  c_nows <- gsub("\\s+", "", cd)
+  b_lower <- stringi::stri_trans_tolower(bd)
+  c_lower <- stringi::stri_trans_tolower(cd)
+  b_nfc <- stringi::stri_trans_nfc(bd)
+  c_nfc <- stringi::stri_trans_nfc(cd)
+  b_nopun <- gsub("[[:punct:][:space:]]+", "", bd)
+  c_nopun <- gsub("[[:punct:][:space:]]+", "", cd)
+
+  trim_eq <- b_trim == c_trim
   trim_eq[is.na(trim_eq)] <- FALSE
   if (any(trim_eq)) {
     out[[length(out) + 1L]] <- ks_pat_row(
@@ -398,8 +415,7 @@ ks_pat_string <- function(col, sub, kind) {
     )
   }
 
-  ws <- !trim_eq &
-    (gsub("\\s+", "", bd) == gsub("\\s+", "", cd))
+  ws <- !trim_eq & (b_nows == c_nows)
   ws[is.na(ws)] <- FALSE
   if (any(ws)) {
     out[[length(out) + 1L]] <- ks_pat_row(
@@ -407,8 +423,7 @@ ks_pat_string <- function(col, sub, kind) {
     )
   }
 
-  cs_eq <- !trim_eq & !ws &
-    (stringi::stri_trans_tolower(bd) == stringi::stri_trans_tolower(cd))
+  cs_eq <- !trim_eq & !ws & (b_lower == c_lower)
   cs_eq[is.na(cs_eq)] <- FALSE
   if (any(cs_eq)) {
     out[[length(out) + 1L]] <- ks_pat_row(
@@ -416,8 +431,7 @@ ks_pat_string <- function(col, sub, kind) {
     )
   }
 
-  norm_eq <- !trim_eq & !ws & !cs_eq &
-    (stringi::stri_trans_nfc(bd) == stringi::stri_trans_nfc(cd))
+  norm_eq <- !trim_eq & !ws & !cs_eq & (b_nfc == c_nfc)
   norm_eq[is.na(norm_eq)] <- FALSE
   if (any(norm_eq)) {
     out[[length(out) + 1L]] <- ks_pat_row(
@@ -426,9 +440,7 @@ ks_pat_string <- function(col, sub, kind) {
     )
   }
 
-  pun_eq <- !trim_eq & !ws & !cs_eq & !norm_eq &
-    (gsub("[[:punct:][:space:]]+", "", bd) ==
-     gsub("[[:punct:][:space:]]+", "", cd))
+  pun_eq <- !trim_eq & !ws & !cs_eq & !norm_eq & (b_nopun == c_nopun)
   pun_eq[is.na(pun_eq)] <- FALSE
   if (any(pun_eq)) {
     out[[length(out) + 1L]] <- ks_pat_row(
