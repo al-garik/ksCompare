@@ -113,34 +113,45 @@ ks_row_diff_summary <- function(x, n = NULL) {
   if (is.null(vd) || nrow(vd) == 0L) {
     return(empty)
   }
-  groups <- split(seq_len(nrow(vd)), vd$key_id)
+  # Sort by key_id and use rle-based grouping to avoid creating N tiny tibbles.
+  ord   <- order(vd$key_id, method = "radix")
+  kid_s <- vd$key_id[ord]
+  br_s  <- vd$base_row[ord]
+  cr_s  <- vd$comp_row[ord]
+  col_s <- vd$column_base[ord]
+  grp   <- rle(kid_s)
+  ng    <- length(grp$values)
+  gend  <- cumsum(grp$lengths)
+  gbeg  <- c(1L, gend[-ng] + 1L)
+
+  key_ids   <- grp$values
+  n_diffs_v <- grp$lengths
+  base_rows <- br_s[gbeg]
+  comp_rows <- cr_s[gbeg]
+
+  columns_txt <- vapply(seq_len(ng), function(i) {
+    cols <- unique(col_s[gbeg[i]:gend[i]])
+    if (length(cols) <= 8L) paste(cols, collapse = ", ")
+    else paste0(paste(cols[seq_len(8L)], collapse = ", "), ", \u2026")
+  }, character(1L))
+
   row_keys <- x$meta$row_keys
-  rows <- lapply(names(groups), function(kid_str) {
-    idx <- groups[[kid_str]]
-    kid <- as.integer(kid_str)
-    cols <- unique(vd$column_base[idx])
-    cols_txt <- if (length(cols) <= 8L) {
-      paste(cols, collapse = ", ")
-    } else {
-      paste0(paste(utils::head(cols, 8L), collapse = ", "), ", \u2026")
-    }
-    label <- if (!is.null(row_keys)) {
-      hit <- match(kid, row_keys$key_id)
-      if (is.na(hit)) NA_character_ else row_keys$key_label[[hit]]
-    } else {
-      NA_character_
-    }
-    tibble::tibble(
-      key_id = kid,
-      base_row = vd$base_row[idx][[1L]],
-      comp_row = vd$comp_row[idx][[1L]],
-      key_label = label,
-      n_diffs = length(idx),
-      columns = cols_txt
-    )
-  })
-  out <- vctrs::vec_rbind(!!!rows)
-  out <- out[order(-out$n_diffs, out$key_id), , drop = FALSE]
+  key_labels <- if (!is.null(row_keys) && nrow(row_keys) > 0L) {
+    m <- match(key_ids, row_keys$key_id)
+    ifelse(is.na(m), NA_character_, row_keys$key_label[m])
+  } else {
+    rep(NA_character_, ng)
+  }
+
+  out <- tibble::tibble(
+    key_id    = key_ids,
+    base_row  = base_rows,
+    comp_row  = comp_rows,
+    key_label = key_labels,
+    n_diffs   = as.integer(n_diffs_v),
+    columns   = columns_txt
+  )
+  out <- out[order(-out$n_diffs, out$key_id, method = "radix"), , drop = FALSE]
   if (!is.null(n)) {
     n <- as.integer(n)
     if (is.na(n) || n < 0L) ks_abort("{.arg n} must be a non-negative integer.")
@@ -388,7 +399,12 @@ ks_suggest_key <- function(x, base = NULL, comp = NULL, top_n = 10L) {
     sub <- df[, c(key_cols, extra), drop = FALSE]
     n <- nrow(sub)
     if (n == 0L) return(NA_real_)
-    nu <- nrow(vctrs::vec_unique(sub))
+    # Handle potential type mismatches in key columns gracefully
+    nu <- tryCatch(
+      nrow(vctrs::vec_unique(sub)),
+      error = function(e) return(NA_integer_)
+    )
+    if (is.na(nu)) return(NA_real_)
     nu / n
   }
 
@@ -478,12 +494,18 @@ ks_recommendations <- function(x) {
         "Look for the \u2192NA / \u2190NA chips in the Note column of the value-diff table, or filter `na_flow` on `as_tibble(cmp)`.")
   }
 
-  ko <- x$key_diff
-  if (!is.null(ko) && nrow(ko) > 0L) {
-    add("info", "Key duplications",
-        sprintf("%d duplicated key value%s reported.", nrow(ko),
-                if (nrow(ko) == 1L) "" else "s"),
-        "Review the \"Row matching\" section.")
+  n_dup_base <- x$meta$matching$n_base_dup_keys %||% 0L
+  n_dup_comp <- x$meta$matching$n_comp_dup_keys %||% 0L
+  # Avoid double-reporting when the "critical" dup-positional rec already fired.
+  already_warned_dups <- h$dup_positional && h$diff_density > 0.05
+  if ((n_dup_base + n_dup_comp) > 0L && !already_warned_dups) {
+    add("info", "Duplicate key values",
+        sprintf(
+          "Duplicate key values detected: %d on base, %d on compare. Strategy: `%s`.",
+          n_dup_base, n_dup_comp,
+          x$meta$matching$dup_strategy %||% "unknown"
+        ),
+        "Review the \"Row matching\" section for full duplicate key details.")
   }
 
   if (length(recs) == 0L) {

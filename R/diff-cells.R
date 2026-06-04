@@ -87,6 +87,7 @@ ks_value_diff_one <- function(
   comp_name,
   match,
   tol,
+  coerce = "safe",
   options
 ) {
   matched <- match[match$status == "matched", , drop = FALSE]
@@ -94,7 +95,7 @@ ks_value_diff_one <- function(
     return(ks_empty_value_diff())
   }
 
-  pt <- ks_common_ptype(base_col, comp_col, mode = "safe")
+  pt <- ks_common_ptype(base_col, comp_col, mode = coerce)
   if (is.null(pt$ptype)) {
     # Type incompatibility: emit one row per matched row flagging the kind.
     bb <- base_col[matched$base_row]
@@ -253,6 +254,8 @@ ks_explain_diffs <- function(b, c, kind, diff_num, type_note = NA_character_) {
         cues <- c(cues, if (identical(ci, "")) "base is NA, compare is empty string" else "base is NA")
       } else if (!is.na(bi) && is.na(ci)) {
         cues <- c(cues, if (identical(bi, "")) "base is empty string, compare is NA" else "compare is NA")
+      } else if (is.na(bi) && is.na(ci)) {
+        cues <- c(cues, "both sides are NA")
       } else if (!is.na(bi) && !is.na(ci)) {
         if (identical(bi, "") && !identical(ci, "")) {
           cues <- c(cues, "base is empty string")
@@ -314,6 +317,8 @@ ks_explain_diffs <- function(b, c, kind, diff_num, type_note = NA_character_) {
         cues <- c(cues, "base is NA")
       } else if (!is.na(bi) && is.na(ci)) {
         cues <- c(cues, "compare is NA")
+      } else if (is.na(bi) && is.na(ci)) {
+        cues <- c(cues, "both sides are NA")
       } else if (is.finite(bi) && is.finite(ci) && !is.na(diff_num[[i]])) {
         ad <- abs(diff_num[[i]])
         scale <- max(abs(bi), abs(ci))
@@ -347,6 +352,8 @@ ks_explain_diffs <- function(b, c, kind, diff_num, type_note = NA_character_) {
         cues <- c(cues, "base is NA")
       } else if (!is.na(bi) && is.na(ci)) {
         cues <- c(cues, "compare is NA")
+      } else if (is.na(bi) && is.na(ci)) {
+        cues <- c(cues, "both sides are NA")
       } else if (!is.na(diff_num[[i]])) {
         if (is_datetime) {
           dur <- ks_format_duration(diff_num[[i]])
@@ -382,6 +389,7 @@ ks_explain_diffs <- function(b, c, kind, diff_num, type_note = NA_character_) {
       cues <- character()
       if (is.na(b[[i]]) && !is.na(c[[i]])) cues <- c(cues, "base is NA")
       if (!is.na(b[[i]]) && is.na(c[[i]])) cues <- c(cues, "compare is NA")
+      if (is.na(b[[i]]) && is.na(c[[i]])) cues <- c(cues, "both sides are NA")
       notes[[i]] <- cues
     }
   } else {

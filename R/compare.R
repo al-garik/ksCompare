@@ -207,7 +207,6 @@ ks_compare <- function(
   match_result <- ks_match_rows(base, comp, keys, dup_keys = dup_keys)
   row_diff <- match_result$row_diff
   matching <- match_result$matching
-  matching$keys <- keys
   row_keys <- ks_build_row_keys(row_diff, base, comp, keys)
 
   # Compute value diffs over matched columns.
@@ -234,6 +233,7 @@ ks_compare <- function(
         comp_name = cn,
         match = row_diff,
         tol = tolerance,
+        coerce = coerce,
         options = options
       )
       if (nrow(part) > 0L) {
@@ -262,7 +262,7 @@ ks_compare <- function(
   }
 
   unmatched_rows <- ks_build_unmatched_rows(
-    row_diff, base, comp, row_keys,
+    row_diff, base, comp, row_keys, keys,
     max_rows = max_unmatched_rows
   )
   first_last_unequal <- ks_build_first_last_unequal(value_diff, n = n_first_last)

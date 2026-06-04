@@ -396,12 +396,6 @@ ks_html_page <- function(x, title, subtitle, max_rows, theme,
         content = "width=device-width, initial-scale=1"
       ),
       htmltools::tags$title(title),
-      htmltools::tags$link(rel = "preconnect", href = "https://fonts.googleapis.com"),
-      htmltools::tags$link(rel = "preconnect", href = "https://fonts.gstatic.com", crossorigin = ""),
-      htmltools::tags$link(
-        rel = "stylesheet",
-        href = "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
-      ),
       htmltools::tags$style(htmltools::HTML(ks_html_css(theme)))
     ),
     htmltools::tags$body(
@@ -553,7 +547,9 @@ ks_html_kpi_block <- function(s, x = NULL) {
 
 ks_html_sections <- function(x, s, max_rows, bn, cn,
                               group_by_key = FALSE, max_groups = 200L) {
-  schema_n <- ks_count_schema_diffs(x, s)
+  schema_n     <- ks_count_schema_diffs(x, s)
+  row_hotspots <- ks_row_diff_summary(x)      # computed once; reused for count and body
+  diff_causes  <- ks_cause_summary(x)         # computed once; reused for count and body
   list(
     list(
       id = "schema",
@@ -587,24 +583,20 @@ ks_html_sections <- function(x, s, max_rows, bn, cn,
       body = ks_html_table_column_summary(x$value_diff, s)
     ),
     list(
-      id = "row-hotspots",
-      title = "Most-affected rows",
-      count = {
-        rs <- ks_row_diff_summary(x); if (is.null(rs)) 0L else nrow(rs)
-      },
-      count_label = "rows",
-      blurb = "Observations with the highest number of cell differences. Often pinpoints wrong row matches or systemic shifts on a single record. `base_row` / `comp_row` reference the original 1-based row index in `base` / `comp`.",
-      body = ks_html_table_row_hotspots(ks_row_diff_summary(x, n = max_rows), max_rows)
-    ),
-    list(
       id = "diff-causes",
       title = "Diff causes",
-      count = {
-        cs <- ks_cause_summary(x); if (is.null(cs)) 0L else nrow(cs)
-      },
+      count = nrow(diff_causes),
       count_label = "causes",
       blurb = "Taxonomy of *why* cells differ (case-fold, whitespace, NA flow, magnitude, ...). One row per recognised cause across all matched columns.",
-      body = ks_html_table_causes(ks_cause_summary(x), max_rows)
+      body = ks_html_table_causes(diff_causes, max_rows)
+    ),
+    list(
+      id = "row-hotspots",
+      title = "Most-affected rows",
+      count = nrow(row_hotspots),
+      count_label = "rows",
+      blurb = "Observations with the highest number of cell differences. Often pinpoints wrong row matches or systemic shifts on a single record. `base_row` / `comp_row` reference the original 1-based row index in `base` / `comp`.",
+      body = ks_html_table_row_hotspots(utils::head(row_hotspots, max_rows), max_rows)
     ),
     list(
       id = "values",
@@ -1623,46 +1615,57 @@ ks_html_table_column_summary <- function(value_diff, s) {
     return(ks_html_empty("No columns with value differences."))
   }
   vd <- value_diff
-  cols <- unique(vd$column_base)
-  rows <- lapply(cols, function(col) {
-    sub <- vd[vd$column_base == col, , drop = FALSE]
-    kind <- sub$kind[[1L]]
-    n <- nrow(sub)
-    n_keys <- length(unique(sub$key_id))
-    # Top cause from notes
-    notes <- unlist(strsplit(stats::na.omit(sub$note), ";\\s*"))
-    top_cause <- if (length(notes) == 0L) {
-      NA_character_
-    } else {
-      tt <- sort(table(trimws(notes)), decreasing = TRUE)
-      sprintf("%s (\u00d7%d)", names(tt)[[1L]], tt[[1L]])
-    }
-    is_num <- kind %in% c("integer", "double")
-    max_abs <- if (is_num) {
-      d <- suppressWarnings(as.numeric(sub$diff))
-      d <- d[is.finite(d)]
-      if (length(d) == 0L) NA_real_ else max(abs(d))
-    } else {
-      NA_real_
-    }
-    mean_abs <- if (is_num) {
-      d <- suppressWarnings(as.numeric(sub$diff))
-      d <- d[is.finite(d)]
-      if (length(d) == 0L) NA_real_ else mean(abs(d))
-    } else {
-      NA_real_
-    }
-    tibble::tibble(
-      column = col,
-      kind = kind,
-      n_diffs = n,
-      n_rows = n_keys,
-      max_abs_diff = max_abs,
-      mean_abs_diff = mean_abs,
-      top_cause = top_cause
-    )
-  })
-  out <- vctrs::vec_rbind(!!!rows)
+  # Split once; derive all per-column aggregates without creating N tiny tibbles.
+  col_groups <- split(seq_len(nrow(vd)), vd$column_base)
+  cols_u     <- names(col_groups)
+  ng         <- length(cols_u)
+
+  kind_v     <- vapply(cols_u, function(col) vd$kind[col_groups[[col]][1L]], character(1L))
+  col_comp_v <- vapply(cols_u, function(col) vd$column_comp[col_groups[[col]][1L]], character(1L))
+  n_diffs_v  <- vapply(col_groups, length, integer(1L))
+  n_rows_v   <- vapply(col_groups, function(idx) length(unique(vd$key_id[idx])), integer(1L))
+
+  is_num_v   <- kind_v %in% c("integer", "double")
+  d_all      <- suppressWarnings(as.numeric(vd$diff))
+  max_abs_v  <- vapply(seq_len(ng), function(i) {
+    if (!is_num_v[i]) return(NA_real_)
+    d <- d_all[col_groups[[i]]]
+    d <- d[is.finite(d)]
+    if (length(d) == 0L) NA_real_ else max(abs(d))
+  }, numeric(1L))
+  mean_abs_v <- vapply(seq_len(ng), function(i) {
+    if (!is_num_v[i]) return(NA_real_)
+    d <- d_all[col_groups[[i]]]
+    d <- d[is.finite(d)]
+    if (length(d) == 0L) NA_real_ else mean(abs(d))
+  }, numeric(1L))
+  top_cause_v <- vapply(cols_u, function(col) {
+    notes <- vd$note[col_groups[[col]]]
+    notes <- notes[!is.na(notes)]
+    if (length(notes) == 0L) return(NA_character_)
+    parts <- trimws(unlist(strsplit(notes, ";\\s*"), use.names = FALSE))
+    parts <- parts[nzchar(parts)]
+    if (length(parts) == 0L) return(NA_character_)
+    tt <- sort(table(parts), decreasing = TRUE)
+    sprintf("%s (\u00d7%d)", names(tt)[[1L]], tt[[1L]])
+  }, character(1L))
+
+  # Show mapped comp name inline when base and compare column names differ.
+  col_display <- ifelse(
+    !is.na(col_comp_v) & col_comp_v != cols_u,
+    paste0(cols_u, " \u2192 ", col_comp_v),
+    cols_u
+  )
+
+  out <- tibble::tibble(
+    column        = col_display,
+    kind          = kind_v,
+    n_diffs       = as.integer(n_diffs_v),
+    n_rows        = as.integer(n_rows_v),
+    max_abs_diff  = max_abs_v,
+    mean_abs_diff = mean_abs_v,
+    top_cause     = top_cause_v
+  )
   out <- out[order(-out$n_diffs), , drop = FALSE]
 
   cols_def <- list(
@@ -1958,7 +1961,15 @@ ks_js_diff_cell <- function() {
         else { unit = ' s'; }
       }
       var cls = num > 0 ? 'ks-diff-pos' : (num < 0 ? 'ks-diff-neg' : 'ks-dim');
-      var formatted = display.toLocaleString(undefined, { maximumFractionDigits: 3 });
+      var absDisp = Math.abs(display);
+      var formatted;
+      if (absDisp === 0) {
+        formatted = '0';
+      } else if (absDisp >= 0.001) {
+        formatted = display.toLocaleString(undefined, { maximumFractionDigits: 4 });
+      } else {
+        formatted = display.toExponential(3);
+      }
       var sign = num > 0 ? '+' : '';
       var title = (kind ? kind + ': ' : '') + num + (kind === 'date' ? ' days' : (kind === 'datetime' ? ' seconds' : ''));
       return '<span class=\"' + cls + '\" title=\"' + title + '\">' + sign + formatted + unit + '</span>';
