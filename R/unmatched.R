@@ -22,7 +22,7 @@
 #'
 #' @keywords internal
 #' @noRd
-ks_build_unmatched_rows <- function(row_diff, base, comp, row_keys, max_rows = 100L) {
+ks_build_unmatched_rows <- function(row_diff, base, comp, row_keys, keys = NULL, max_rows = 100L) {
   empty <- tibble::tibble(
     side = character(),
     key_id = integer(),
@@ -45,6 +45,10 @@ ks_build_unmatched_rows <- function(row_diff, base, comp, row_keys, max_rows = 1
   if (n_bo_total == 0L && n_co_total == 0L) {
     return(empty)
   }
+
+  # Determine which columns to exclude (key columns, since they're in key_label)
+  exclude_base <- if (!is.null(keys) && nrow(keys) > 0L) keys$base else character()
+  exclude_comp <- if (!is.null(keys) && nrow(keys) > 0L) keys$comp else character()
 
   # Apportion the cap between the two sides proportionally so neither
   # side hides the other entirely.
@@ -69,7 +73,7 @@ ks_build_unmatched_rows <- function(row_diff, base, comp, row_keys, max_rows = 1
   bo_idx <- utils::head(bo_idx, keep_bo)
   co_idx <- utils::head(co_idx, keep_co)
 
-  make_part <- function(side, idx, src) {
+  make_part <- function(side, idx, src, exclude_cols) {
     if (length(idx) == 0L) {
       return(NULL)
     }
@@ -83,13 +87,18 @@ ks_build_unmatched_rows <- function(row_diff, base, comp, row_keys, max_rows = 1
       base_row = if (is_base) as.integer(src_rows) else rep(NA_integer_, n),
       comp_row = if (!is_base) as.integer(src_rows) else rep(NA_integer_, n)
     )
+    # Extract data, excluding key columns to avoid type mismatch issues
     data <- src[src_rows, , drop = FALSE]
+    if (length(exclude_cols) > 0L) {
+      keep_cols <- setdiff(names(data), exclude_cols)
+      data <- data[, keep_cols, drop = FALSE]
+    }
     vctrs::vec_cbind(head_df, tibble::as_tibble(data))
   }
 
   parts <- list(
-    make_part("base_only", bo_idx, base),
-    make_part("comp_only", co_idx, comp)
+    make_part("base_only", bo_idx, base, exclude_base),
+    make_part("comp_only", co_idx, comp, exclude_comp)
   )
   parts <- parts[!vapply(parts, is.null, logical(1L))]
 

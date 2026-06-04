@@ -67,8 +67,8 @@ ks_resolve_by <- function(base, comp, by) {
 #'
 #' @keywords internal
 #' @noRd
-ks_check_key_unique <- function(base, comp, keys) {
-  if (nrow(keys) == 0L) {
+ks_check_key_unique <- function(bkey, ckey) {
+  if (ncol(bkey) == 0L) {
     return(list(
       base_unique = TRUE,
       comp_unique = TRUE,
@@ -76,10 +76,8 @@ ks_check_key_unique <- function(base, comp, keys) {
       comp_dups = tibble::tibble()
     ))
   }
-  bsel <- base[, keys$base, drop = FALSE]
-  csel <- comp[, keys$comp, drop = FALSE]
-  bcount <- vctrs::vec_count(bsel, sort = "count")
-  ccount <- vctrs::vec_count(csel, sort = "count")
+  bcount <- vctrs::vec_count(bkey, sort = "count")
+  ccount <- vctrs::vec_count(ckey, sort = "count")
   bdup <- bcount[bcount$count > 1L, , drop = FALSE]
   cdup <- ccount[ccount$count > 1L, , drop = FALSE]
   list(
@@ -127,6 +125,12 @@ ks_build_row_keys <- function(row_diff, base, comp, keys) {
   csel <- comp[, keys$comp, drop = FALSE]
   names(bsel) <- paste0("k", seq_along(bsel))
   names(csel) <- paste0("k", seq_along(csel))
+  
+  # Coerce key columns to a common type to handle type mismatches
+  # (same logic as in ks_match_rows_keyed)
+  coerced <- ks_coerce_keys(bsel, csel)
+  bsel <- coerced$bkey
+  csel <- coerced$ckey
 
   n <- nrow(row_diff)
   # Pull key values per row, filling from whichever side is non-NA.

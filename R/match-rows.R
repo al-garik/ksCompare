@@ -70,6 +70,79 @@ ks_match_rows_position <- function(base, comp) {
   )
 }
 
+#' Internal: coerce key columns to a common type
+#'
+#' When key columns have incompatible types (e.g., one side is all NA with
+#' logical type, or numeric vs character), we need to coerce them to a common
+#' type before vctrs can compare them. Uses "lossy" mode to handle all cases.
+#'
+#' @keywords internal
+#' @noRd
+ks_coerce_keys <- function(bkey, ckey) {
+  ncols <- ncol(bkey)
+  if (ncols != ncol(ckey)) {
+    ks_abort("Internal: key column count mismatch.")
+  }
+  if (ncols == 0L) {
+    return(list(bkey = bkey, ckey = ckey))
+  }
+  
+  # Make data.frame copies to avoid modifying original
+  bkey_out <- as.data.frame(bkey)
+  ckey_out <- as.data.frame(ckey)
+  
+  for (i in seq_len(ncols)) {
+    bcol <- bkey[[i]]
+    ccol <- ckey[[i]]
+    
+    # Detect all-NA columns
+    ball_na <- all(is.na(bcol))
+    call_na <- all(is.na(ccol))
+    
+    # If both are all NA, just convert both to character to avoid type conflicts
+    if (ball_na && call_na) {
+      bkey_out[[i]] <- rep(NA_character_, length(bcol))
+      ckey_out[[i]] <- rep(NA_character_, length(ccol))
+      next
+    }
+    
+    # If one side is all NA, convert to character (safest fallback)
+    # This avoids complex type casting that can fail
+    if (ball_na || call_na) {
+      bkey_out[[i]] <- ks_cast(bcol, character())
+      ckey_out[[i]] <- ks_cast(ccol, character())
+      next
+    }
+    
+    # Both sides have values - try to find a common type
+    result <- tryCatch({
+      pt <- ks_common_ptype(bcol, ccol, mode = "lossy")
+      if (!is.null(pt$ptype)) {
+        list(
+          b = ks_cast(bcol, pt$ptype),
+          c = ks_cast(ccol, pt$ptype),
+          success = TRUE
+        )
+      } else {
+        list(success = FALSE)
+      }
+    }, error = function(e) {
+      list(success = FALSE)
+    })
+    
+    if (isTRUE(result$success)) {
+      bkey_out[[i]] <- result$b
+      ckey_out[[i]] <- result$c
+    } else {
+      # Fallback: convert both to character
+      bkey_out[[i]] <- ks_cast(bcol, character())
+      ckey_out[[i]] <- ks_cast(ccol, character())
+    }
+  }
+  
+  list(bkey = bkey_out, ckey = ckey_out)
+}
+
 ks_match_rows_keyed <- function(base, comp, keys, dup_keys = "first") {
   bkey <- base[, keys$base, drop = FALSE]
   ckey <- comp[, keys$comp, drop = FALSE]
@@ -77,9 +150,17 @@ ks_match_rows_keyed <- function(base, comp, keys, dup_keys = "first") {
   names(bkey) <- paste0("k", seq_along(bkey))
   names(ckey) <- paste0("k", seq_along(ckey))
 
-  uniq_check <- ks_check_key_unique(base, comp, keys)
+  # Coerce key columns to a common type to handle type mismatches
+  # (e.g., when one side is all NA or has incompatible types)
+  coerced <- ks_coerce_keys(bkey, ckey)
+  bkey <- coerced$bkey
+  ckey <- coerced$ckey
+
+  uniq_check <- ks_check_key_unique(bkey, ckey)
   if (!uniq_check$base_unique || !uniq_check$comp_unique) {
-    return(ks_match_rows_dup(bkey, ckey, dup_keys, uniq_check))
+    result <- ks_match_rows_dup(bkey, ckey, dup_keys, uniq_check)
+    result$matching$keys <- keys
+    return(result)
   }
 
   # Both sides unique on key — straight outer join via vctrs.

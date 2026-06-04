@@ -168,6 +168,15 @@ ks_common_ptype <- function(base, comp, mode = c("strict", "safe", "lossy")) {
     ))
   }
   if (
+    (bk %in% c("date", "datetime") && ck %in% c("integer", "double")) ||
+      (bk %in% c("integer", "double") && ck %in% c("date", "datetime"))
+  ) {
+    return(list(
+      ptype = character(),
+      note = "date/datetime<->numeric via lossy coercion"
+    ))
+  }
+  if (
     (bk == "factor" && ck == "integer") ||
       (bk == "integer" && ck == "factor")
   ) {
