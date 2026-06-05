@@ -2,7 +2,7 @@ test_that("by = 'auto' picks the smallest unique key from shared columns", {
   a <- data.frame(id = 1:3, x = 1:3)
   b <- data.frame(id = 1:3, x = 1:3)
   expect_message(
-    cmp <- ks_compare(a, b, by = "auto"),
+    cmp <- ks_compare(a, b, by = "auto", loglevel = "verbose"),
     class = "ksCompare_auto_key_inferred"
   )
   expect_equal(cmp$meta$keys$base, "id")

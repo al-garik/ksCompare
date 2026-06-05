@@ -93,6 +93,14 @@
 #'   `cmp$first_last_unequal`. Mirrors the *First / Last N Obs With
 #'   Some Compared Variables Unequal* tables of SAS `PROC COMPARE`.
 #'   Set to `0` to skip.
+#' @param loglevel Controls what [print()] emits after the comparison. One of:
+#'   - `"verdict"` (default): prints a single coloured verdict line
+#'     (`cli_alert_success` / `_warning` / `_danger`) plus any
+#'     `"critical"` recommendations. The full schema / rows / values
+#'     breakdown is omitted. Pipeline info messages (duplicate-key
+#'     resolution, auto-key selection, etc.) are unaffected.
+#'   - `"verbose"`: [print()] emits the complete schema / rows / values
+#'     breakdown. Pipeline info messages fire normally as well.
 #' @param max_unmatched_rows Non-negative integer (default `100`).
 #'   Cap on how many full base-only / comp-only rows are stored on
 #'   `cmp$unmatched_rows` for inspection (and surfaced by
@@ -118,6 +126,10 @@
 #'     `max_unmatched_rows`); see [ks_unmatched_rows()].
 #'   - `first_last_unequal`: per-column first / last `n_first_last`
 #'     differing observations in `key_id` order (PROC COMPARE-style).
+#'   - `verdict`: a list with `headline` (character), `severity`
+#'     (`"ok"`, `"info"`, `"warn"`, or `"critical"`), `pct_match`
+#'     (0–100 numeric), `n_cells`, and `n_diffs`; the same summary
+#'     shown by [print()].
 #'   - `options`, `tolerance`: the inputs (echoed for the manifest).
 #'   - `manifest`: input hashes + run metadata.
 #'
@@ -161,13 +173,15 @@ ks_compare <- function(
   comp_name = NULL,
   find_patterns = FALSE,
   n_first_last = 5L,
-  max_unmatched_rows = 100L
+  max_unmatched_rows = 100L,
+  loglevel = c("verdict", "verbose")
 ) {
   base_label <- rlang::as_label(rlang::enexpr(base))
   comp_label <- rlang::as_label(rlang::enexpr(comp))
 
-  coerce <- rlang::arg_match(coerce)
+  coerce   <- rlang::arg_match(coerce)
   dup_keys <- rlang::arg_match(dup_keys)
+  loglevel <- rlang::arg_match(loglevel)
   if (!inherits(tolerance, "ks_tol")) {
     ks_abort("{.arg tolerance} must be created with {.fn ks_tol}.")
   }
@@ -201,10 +215,24 @@ ks_compare <- function(
   base <- tibble::as_tibble(base)
   comp <- tibble::as_tibble(comp)
 
-  alignment <- ks_align_columns(base, comp, mapping = mapping)
+  alignment   <- ks_align_columns(base, comp, mapping = mapping)
   schema_diff <- ks_schema_diff(base, comp, alignment, options)
-  keys <- ks_resolve_by(base, comp, by)
-  match_result <- ks_match_rows(base, comp, keys, dup_keys = dup_keys)
+
+  # In verdict mode, suppress informational messages that fire during key
+  # resolution and row matching (auto-key selection, dup-key resolution, etc.).
+  if (identical(loglevel, "verdict")) {
+    keys <- withCallingHandlers(
+      ks_resolve_by(base, comp, by),
+      message = function(m) invokeRestart("muffleMessage")
+    )
+    match_result <- withCallingHandlers(
+      ks_match_rows(base, comp, keys, dup_keys = dup_keys),
+      message = function(m) invokeRestart("muffleMessage")
+    )
+  } else {
+    keys         <- ks_resolve_by(base, comp, by)
+    match_result <- ks_match_rows(base, comp, keys, dup_keys = dup_keys)
+  }
   row_diff <- match_result$row_diff
   matching <- match_result$matching
   row_keys <- ks_build_row_keys(row_diff, base, comp, keys)
@@ -280,7 +308,8 @@ ks_compare <- function(
     base_keys = if (nrow(keys) > 0L) base[, keys$base, drop = FALSE] else NULL,
     coerce = coerce,
     matching = matching,
-    row_keys = row_keys
+    row_keys = row_keys,
+    loglevel = loglevel
   )
 
   manifest <- list(
@@ -292,7 +321,7 @@ ks_compare <- function(
     package_version = utils::packageVersion("ksCompare")
   )
 
-  new_ks_comparison(
+  cmp <- new_ks_comparison(
     meta = meta,
     schema_diff = schema_diff,
     key_diff = tibble::tibble(
@@ -309,4 +338,51 @@ ks_compare <- function(
     tolerance = tolerance,
     manifest = manifest
   )
+
+  # Compute and attach the verdict so users can extract it directly from
+  # the object without calling ks_executive_verdict() again.
+  cmp$verdict <- tryCatch(ks_executive_verdict(cmp), error = function(e) NULL)
+
+  # In verdict mode emit one short summary line, then return silently.
+  if (identical(loglevel, "verdict") && !is.null(cmp$verdict)) {
+    v   <- cmp$verdict
+    sev <- v$severity %||% "ok"
+    bn  <- cmp$meta$base_name
+    cn  <- cmp$meta$comp_name
+    label <- if (identical(bn, cn)) bn else paste0(bn, " vs ", cn)
+    s   <- summary(cmp)
+    if (v$n_diffs == 0L && s$n_base_only_rows == 0L && s$n_comp_only_rows == 0L &&
+        s$n_base_only_columns == 0L && s$n_comp_only_columns == 0L) {
+      ks_inform(
+        "{cli::col_green('\u2714')} {cli::style_bold(label)} {cli::col_green('\u2014 identical')}",
+        class = "ksCompare_verdict"
+      )
+    } else if (v$n_diffs == 0L) {
+      parts <- character()
+      if (s$n_base_only_rows + s$n_comp_only_rows > 0L)
+        parts <- c(parts, sprintf("%d unmatched row(s)",
+                                  s$n_base_only_rows + s$n_comp_only_rows))
+      if (s$n_base_only_columns + s$n_comp_only_columns > 0L)
+        parts <- c(parts, sprintf("%d schema difference(s)",
+                                  s$n_base_only_columns + s$n_comp_only_columns))
+      ks_inform(
+        "{cli::col_yellow('\u26a0')} {cli::style_bold(label)} {cli::col_yellow('\u2014 no value diffs;')} {paste(parts, collapse = ', ')}",
+        class = "ksCompare_verdict"
+      )
+    } else {
+      col_fn <- if (identical(sev, "critical")) cli::col_red else cli::col_yellow
+      icon   <- if (identical(sev, "critical")) "\u2716" else "\u26a0"
+      ndiffs  <- v$n_diffs
+      ncols   <- s$n_columns_with_diffs
+      diff_txt <- sprintf("%d value diff%s across %d column%s",
+                          ndiffs, if (ndiffs == 1L) "" else "s",
+                          ncols,  if (ncols  == 1L) "" else "s")
+      ks_inform(
+        "{col_fn(icon)} {cli::style_bold(label)} {col_fn(paste0('\u2014 ', diff_txt))}",
+        class = "ksCompare_verdict"
+      )
+    }
+  }
+
+  invisible(cmp)
 }

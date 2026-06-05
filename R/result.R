@@ -105,7 +105,7 @@ print.ks_comparison_summary <- function(x, ...) {
 print.ks_comparison <- function(x, ...) {
   s <- summary(x)
   cli::cli_h1("ksCompare comparison")
-  verdict <- tryCatch(ks_executive_verdict(x), error = function(e) NULL)
+  verdict <- x$verdict %||% tryCatch(ks_executive_verdict(x), error = function(e) NULL)
   if (!is.null(verdict)) {
     sev <- verdict$severity %||% "ok"
     if (identical(sev, "critical")) {

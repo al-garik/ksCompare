@@ -109,7 +109,7 @@ test_that("default dup_keys = 'first' collapses with an inform message", {
   a <- data.frame(id = c(1, 1, 2), x = c(1, 2, 3))
   b <- data.frame(id = c(1, 2), x = c(1, 3))
   expect_message(
-    cmp <- ks_compare(a, b, by = "id"),
+    cmp <- ks_compare(a, b, by = "id", loglevel = "verbose"),
     class = "ksCompare_dup_keys_resolved"
   )
   expect_equal(cmp$meta$matching$strategy, "keyed_dup_first")
@@ -129,4 +129,62 @@ test_that("ks_glance returns a one-row tibble", {
   expect_s3_class(g, "tbl_df")
   expect_equal(nrow(g), 1L)
   expect_equal(g$n_value_diffs, 1L)
+})
+
+test_that("verdict is attached to the result object", {
+  a <- data.frame(id = 1:3, x = c(1, 2, 3))
+  b <- data.frame(id = 1:3, x = c(1, 2, 4))
+  cmp <- ks_compare(a, b, by = "id")
+  expect_true(!is.null(cmp$verdict))
+  expect_named(cmp$verdict, c("headline", "pct_match", "n_cells", "n_diffs", "severity"))
+  expect_type(cmp$verdict$headline, "character")
+  expect_type(cmp$verdict$severity, "character")
+  expect_equal(cmp$verdict$n_diffs, 1L)
+})
+
+test_that("verdict severity is ok for identical frames", {
+  a <- data.frame(id = 1:3, x = 1:3)
+  cmp <- ks_compare(a, a, by = "id")
+  expect_equal(cmp$verdict$severity, "ok")
+  expect_equal(cmp$verdict$n_diffs, 0L)
+})
+
+test_that("loglevel='verbose' is stored in meta", {
+  a <- data.frame(id = 1:2, x = 1:2)
+  cmp <- ks_compare(a, a, by = "id", loglevel = "verbose")
+  expect_equal(cmp$meta$loglevel, "verbose")
+})
+
+test_that("loglevel='verdict' is the default and stored in meta", {
+  a <- data.frame(id = 1:2, x = 1:2)
+  cmp <- ks_compare(a, a, by = "id")
+  expect_equal(cmp$meta$loglevel, "verdict")
+})
+
+test_that("verdict mode suppresses pipeline messages, emits only verdict", {
+  a <- data.frame(id = c(1, 1, 2), x = 1:3)
+  b <- data.frame(id = c(1, 1, 2), x = c(9, 9, 3))
+  classes <- character()
+  withCallingHandlers(
+    ks_compare(a, b, by = "id", dup_keys = "keep_all", loglevel = "verdict"),
+    message = function(m) {
+      classes <<- c(classes, class(m))
+      invokeRestart("muffleMessage")
+    }
+  )
+  # Pipeline dup-key message is suppressed
+  expect_false("ksCompare_dup_keys_resolved" %in% classes)
+  # The verdict message is emitted
+  expect_true("ksCompare_verdict" %in% classes)
+})
+
+test_that("verbose mode preserves pipeline messages", {
+  a <- data.frame(id = c(1, 1, 2), x = 1:3)
+  b <- data.frame(id = c(1, 1, 2), x = c(9, 9, 3))
+  msgs <- character()
+  withCallingHandlers(
+    ks_compare(a, b, by = "id", dup_keys = "keep_all", loglevel = "verbose"),
+    message = function(m) { msgs <<- c(msgs, conditionMessage(m)); invokeRestart("muffleMessage") }
+  )
+  expect_gt(length(msgs), 0L)
 })
