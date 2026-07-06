@@ -1,4 +1,4 @@
-url: https://ksCompare.github.io/ksCompare/
+url: https://al-garik.github.io/ksCompare/
 
 template:
   bootstrap: 5
@@ -34,13 +34,21 @@ reference:
   - ks_compare
   - ks_tol
   - ks_comp_options
+  - ks_set_comp_options
 - title: Inspect a comparison
   contents:
-  - print.ks_comparison
   - summary.ks_comparison
-  - as_tibble.ks_comparison
+  - as_tibble
   - ks_tidy
   - ks_glance
+  - ks_unmatched_rows
+- title: Diagnostics and triage
+  contents:
+  - ks_cause_summary
+  - ks_row_diff_summary
+  - ks_match_health
+  - ks_suggest_key
+  - ks_recommendations
 - title: SAS PROC COMPARE outputs
   contents:
   - as_outbase
@@ -52,11 +60,6 @@ reference:
   contents:
   - ks_report_html
   - ks_report_xlsx
-- title: I/O
-  contents:
-  - ks_read_sas
-  - ks_read_xpt
-  - ks_read_arrow
 - title: Pipeline gates and interop
   contents:
   - ks_assert_clean

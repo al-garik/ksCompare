@@ -297,6 +297,9 @@ ks_tidy <- function(x, ...) {
   UseMethod("ks_tidy")
 }
 
+#' @rdname ks_tidy
+#' @param include_unmatched Logical (default `FALSE`). When `TRUE`,
+#'   append base-only / comp-only rows from `cmp$unmatched_rows`.
 #' @export
 ks_tidy.ks_comparison <- function(x, include_unmatched = FALSE, ...) {
   vd <- x$value_diff

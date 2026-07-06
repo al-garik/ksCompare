@@ -1,0 +1,100 @@
+# Changelog
+
+## ksCompare 0.2.0
+
+### Performance
+
+- Row matching for duplicate-key strategies `keep_all` and `all_pairs`
+  (`ks_match_rows_keep_all()`, `ks_match_rows_all_pairs()`) now
+  pre-allocates the per-group parts list and caches the level factor
+  used for splitting, removing O(n^2) list-copy churn on data sets with
+  many unique keys.
+- The main comparison loop in
+  [`ks_compare()`](https://al-garik.github.io/ksCompare/reference/ks_compare.md)
+  now pre-allocates the `value_parts` accumulator and uses
+  `order(..., method = "radix")` for the final stable sort of
+  `value_diff`, materially speeding up wide comparisons (many matched
+  column pairs) and large diff tables.
+- `ks_schema_diff()` no longer rescans `meta_b$name` / `meta_c$name` for
+  every column pair; it builds a name-indexed lookup once and reuses
+  per-row metadata, and it hoists the `compare_labels` /
+  `compare_formats` option checks out of the per-column loop.
+- `ks_value_diff_one()` now slices the unequal cells once and reuses the
+  result for `ks_explain_diffs()`, `format_cell()`, and `ks_na_flow()`,
+  avoiding three redundant subsets on large columns; the type-mismatch
+  branch likewise slices `base_col` / `comp_col` only once.
+
+### Internal
+
+- No user-facing API changes; all optimisations are
+  behaviour-preserving.
+
+## ksCompare 0.1.0
+
+- Initial development release. ksCompare is a tidyverse-native engine
+  for comparing two data frames in the spirit of SAS `PROC COMPARE`,
+  with extensions for clinical/pharma workflows. Highlights:
+  - [`ks_compare()`](https://al-garik.github.io/ksCompare/reference/ks_compare.md)
+    orchestrator with explicit `by` keys, `by = "auto"` uniqueness
+    inference, and explicit column `mapping`.
+  - [`ks_tol()`](https://al-garik.github.io/ksCompare/reference/ks_tol.md)
+    with absolute, relative, and ULP tolerance plus per-column
+    overrides.
+  - [`ks_comp_options()`](https://al-garik.github.io/ksCompare/reference/ks_comp_options.md)
+    for NA semantics, SAS special-missing handling, label/format
+    comparison, string trim/case/normalize toggles, and an optional
+    `path` that pins every downstream `ks_report_*()` artefact to a
+    single output folder. Every field also falls back to a
+    `getOption("ksCompare.<arg>")` global, and
+    [`ks_set_comp_options()`](https://al-garik.github.io/ksCompare/reference/ks_set_comp_options.md)
+    forwards to [`options()`](https://rdrr.io/r/base/options.html) for
+    project-wide defaults.
+  - `ks_comparison` S3 with
+    [`print()`](https://rdrr.io/r/base/print.html),
+    [`summary()`](https://rdrr.io/r/base/summary.html),
+    [`as_tibble()`](https://tibble.tidyverse.org/reference/as_tibble.html),
+    [`ks_tidy()`](https://al-garik.github.io/ksCompare/reference/ks_tidy.md),
+    [`ks_glance()`](https://al-garik.github.io/ksCompare/reference/ks_glance.md).
+  - Per-type cell diff for numeric (with ULP-aware compare), character,
+    factor, date/datetime, and `haven_labelled` columns; encoding-safe
+    string comparison.
+  - Schema diff including label and SAS-format mismatches; format
+    comparison is trailing-dot- and case-tolerant so haven import
+    artefacts do not surface as false diffs.
+  - Manifest with input hashes and package version for QC traceability.
+  - [`as_outbase()`](https://al-garik.github.io/ksCompare/reference/sas-out.md),
+    [`as_outcomp()`](https://al-garik.github.io/ksCompare/reference/sas-out.md),
+    [`as_outdif()`](https://al-garik.github.io/ksCompare/reference/sas-out.md),
+    [`as_outnoequal()`](https://al-garik.github.io/ksCompare/reference/sas-out.md)
+    helpers reshape diffs into PROC COMPARE-style tibbles, plus
+    [`ks_sysinfo()`](https://al-garik.github.io/ksCompare/reference/ks_sysinfo.md)
+    for a SAS-compatible bitmask.
+  - Smart features: auto-key inference, fuzzy column rename suggestions
+    (Suggests-gated on `stringdist`), duplicate-key strategies (`first`,
+    `last`, `keep_all`, `all_pairs`, `error`), and pattern detection
+    (`constant_offset`, `constant_scale`, `sign_flip`, `integer_round`,
+    `whitespace_only`, `trim_only`, `case_only`, `factor_recoded`).
+  - Reports:
+    [`ks_report_html()`](https://al-garik.github.io/ksCompare/reference/ks_report_html.md)
+    (self-contained `htmltools` + `reactable` page with sticky TOC, KPI
+    cards, status pill, themed tables, an optional `group_by_key` mode
+    that renders one collapsed block per key value, and a print-friendly
+    stylesheet) and
+    [`ks_report_xlsx()`](https://al-garik.github.io/ksCompare/reference/ks_report_xlsx.md)
+    (openxlsx2 multi-sheet workbook with conditional formatting on
+    `OUT_DIF`). The HTML report inlines every JS/CSS dependency into a
+    single file, so no sibling `lib/` folder is written next to the
+    report.
+  - I/O: `ks_read_sas()` / `ks_read_xpt()` (haven wrappers preserving
+    labelled metadata) and `ks_read_arrow()` (Parquet / Feather).
+  - Ecosystem:
+    [`ks_assert_clean()`](https://al-garik.github.io/ksCompare/reference/ks_assert_clean.md)
+    pipeline gate with
+    [`ks_pointblank_step()`](https://al-garik.github.io/ksCompare/reference/ks_assert_clean.md)
+    adapter;
+    [`as_ks_comparison()`](https://al-garik.github.io/ksCompare/reference/as_ks_comparison.md)
+    generic with method for `arsenal::comparedf`.
+  - Documentation: pkgdown site, five long-form vignettes
+    (`getting-started`, `from-proc-compare`, `smart-features`,
+    `reports`, `pipeline-gates`), and CI workflows for `R-CMD-check`,
+    `pkgdown`, and `test-coverage`.

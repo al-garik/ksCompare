@@ -19,7 +19,8 @@ neither requires Quarto, Pandoc, or any internet access.
 ## HTML
 
 ```{r}
-cmp <- ks_compare(iris, iris, by = "Species")
+iris2 <- transform(iris, row_id = seq_len(nrow(iris)))
+cmp <- ks_compare(iris2, iris2, by = "row_id")
 ks_report_html(
   cmp,
   "report.html",
@@ -31,21 +32,25 @@ ks_report_html(
 The HTML report uses `htmltools` for layout and `reactable` for
 filterable, searchable tables. Layout includes:
 
+- an executive verdict bar and recommendations card,
 - a sticky left-hand table of contents with section badges,
-- a status pill (Clean / Differences detected) in the header,
 - KPI cards summarising matched / unmatched rows and columns,
-- Schema, Key/Row diff, Value diff, Patterns, Suggestions, and
+- Schema, Row matching, Unmatched rows, Columns with differences,
+  Diff causes, Most-affected rows, Value differences, Patterns, and
   Manifest sections,
 - a print-friendly stylesheet.
 
-Pass `path = NULL` to get the assembled `htmltools::tagList()` for
+Pass `path = NA` to get the assembled `htmltools::tagList()` for
 embedding in another document. Pass `theme = "slate"` for a neutral
-dark-header theme.
+dark-header theme. If the comparison was not run with
+`find_patterns = TRUE`, the Patterns section is still present but will
+be empty.
 
 ### Smart sampling
 
-Large value-diff tables are capped at `max_rows` (default `2000`).
-Above the cap, the report renders a *stratified sample* covering
+Every report table respects `max_rows` (default `100`). For large
+value-diff tables, rows above the cap are replaced by a *stratified
+sample* covering
 each affected column and each distinct diff cause (`note`),
 prioritising the largest numeric magnitudes. A notice indicates the
 sample size and recommends `as_tibble(cmp)` for the full table
@@ -78,11 +83,16 @@ Sheets:
 
 - `Summary` -- headline counts.
 - `Schema` -- per-column metadata diff.
-- `Suggestions` -- fuzzy column rename candidates (when
-  `stringdist` is installed).
 - `KeyDiff` -- matched / base-only / comp-only row counts.
 - `Values` -- long cell-level diff table.
-- `Patterns` -- detected recurring shapes.
+- `DiffCauses` -- grouped causes of cell differences.
+- `RowHotspots` -- matched rows with the most changed cells.
+- `Patterns` -- detected recurring shapes (empty unless the comparison
+  was run with `find_patterns = TRUE`).
+- `UnmatchedRows` -- full base-only / comp-only rows stored on the
+  comparison object.
+- `FirstLastUnequal` -- first / last differing observations per matched
+  column.
 - `OUT_BASE`, `OUT_COMP`, `OUT_DIF`, `OUT_NOEQUAL` -- PROC COMPARE-
   style wide outputs (see [as_outbase()] et al.).
 - `Manifest` -- input hashes, package version, run timestamp.

@@ -2,9 +2,12 @@
 % Please edit documentation in R/result.R
 \name{ks_tidy}
 \alias{ks_tidy}
+\alias{ks_tidy.ks_comparison}
 \title{Tidy a ks_comparison}
 \usage{
 ks_tidy(x, ...)
+
+\method{ks_tidy}{ks_comparison}(x, include_unmatched = FALSE, ...)
 }
 \arguments{
 \item{x}{A \code{ks_comparison}.}

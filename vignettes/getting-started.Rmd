@@ -61,17 +61,37 @@ names(cmp)
 - `cmp$value_diff` -- one row per differing cell with `kind`, `base`,
   `comp`, `diff`, `note`. Same as `as_tibble(cmp)` and `ks_tidy(cmp)`.
 - `cmp$pattern_summary` -- recurring shapes per column (e.g.
-  `case_only`, `constant_offset`).
-- `cmp$column_suggestions` -- fuzzy rename candidates (when
-  `stringdist` is installed).
-- `cmp$meta` -- counts, key columns, and the row-matching strategy.
+  `case_only`, `constant_offset`) when `find_patterns = TRUE` was
+  requested; otherwise an empty tibble with the usual columns.
+- `cmp$unmatched_rows` -- full base-only / comp-only observations,
+  capped by `max_unmatched_rows`.
+- `cmp$first_last_unequal` -- PROC COMPARE-style first / last differing
+  observations per matched column.
+- `cmp$meta` -- counts, key columns, row-matching strategy, and the
+  rendered key labels used by reports.
 - `cmp$manifest` -- input hashes + run timestamp for QC traceability.
+- `cmp$verdict` -- executive headline used by `print(cmp)` and the
+  HTML report.
 
 ```{r}
 cmp$schema_diff
 cmp$value_diff
 ks_glance(cmp)
 ```
+
+## Triage helpers
+
+When a comparison is not clean, these helpers narrow the search space
+quickly:
+
+```{r}
+ks_cause_summary(cmp)
+ks_row_diff_summary(cmp)
+```
+
+Use `ks_unmatched_rows(cmp)` to inspect full base-only / comp-only
+records, and rerun with `find_patterns = TRUE` when you want
+`cmp$pattern_summary` populated.
 
 ## Tolerances
 
@@ -183,7 +203,8 @@ ks_compare(base, comp, by = "id", dup_keys = "keep_all")
 - **From SAS:** see `vignette("from-proc-compare")` for a side-by-side
   mapping of `PROC COMPARE` options.
 - **Smart features:** see `vignette("smart-features")` for auto-key
-  inference, fuzzy column suggestions, and pattern detection.
+  inference, duplicate-key handling, pattern detection, and SAS-style
+  first / last unequal summaries.
 - **Reports:** see `vignette("reports")` for HTML and Excel output.
 - **CI / pipelines:** see `vignette("pipeline-gates")` for using
   comparisons as assertions.

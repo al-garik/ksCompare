@@ -41,20 +41,28 @@ suppressMessages(ks_compare(df, df, by = "auto"))
 `by = "auto"` searches for the smallest combination of shared columns
 whose values are unique on both sides.
 
-## Fuzzy column rename suggestions
+## Diff triage helpers
 
-When two frames disagree on column names (`age_yrs` vs `age`,
-`gender` vs `sex`), `ksCompare` suggests likely renames so you can wire
-them up with `mapping = c(...)`.
+`ks_cause_summary()` groups value diffs by likely cause, while
+`ks_row_diff_summary()` shows which matched observations changed the
+most.
 
-```{r, eval = FALSE}
-a <- data.frame(id = 1, age_yrs = 30, sex = "M")
-b <- data.frame(id = 1, age = 30, gender = "M")
+```{r}
+a <- data.frame(id = 1:4, x = c("A", "b ", "c", "d"), y = c(1, 2, 3, 4))
+b <- data.frame(id = 1:4, x = c("a", "b",  "c", "d"), y = c(1, 9, 3, 9))
 cmp <- ks_compare(a, b, by = "id")
-cmp$column_suggestions
+ks_cause_summary(cmp)
+ks_row_diff_summary(cmp)
 ```
 
-(Suggestions require the `stringdist` package.)
+## First / last unequal observations
+
+For SAS-style review tables, `ks_compare()` also stores the first and
+last differing observations per matched column.
+
+```{r}
+ks_compare(a, b, by = "id", n_first_last = 1)$first_last_unequal
+```
 
 ## Duplicate-key strategies
 
@@ -104,16 +112,17 @@ ks_compare(
 
 ## Pattern detection
 
-When many cells differ in the same way (constant offset, sign flip,
-trim-only differences in strings, etc.), `ksCompare` surfaces it on
-`cmp$pattern_summary`:
+Pattern detection is opt-in because the detectors scan every column
+with at least one diff. When many cells differ in the same way
+(constant offset, sign flip, trim-only string differences, etc.), set
+`find_patterns = TRUE` to populate `cmp$pattern_summary`:
 
 ```{r}
 a <- data.frame(id = 1:5, x = c(1, 2, 3, 4, 5))
 b <- data.frame(id = 1:5, x = c(2, 3, 4, 5, 6))
-ks_compare(a, b, by = "id")$pattern_summary
+ks_compare(a, b, by = "id", find_patterns = TRUE)$pattern_summary
 ```
 
-Detected patterns: `constant_offset`, `constant_scale`, `sign_flip`,
-`integer_round`, `whitespace_only`, `trim_only`, `case_only`,
-`factor_recoded`.
+Common labels include `constant_offset`, `constant_scale`,
+`sign_flip`, `integer_round`, `trim_only`, `case_only`,
+`epoch_swap`, and `factor_recoded`, depending on the column type.

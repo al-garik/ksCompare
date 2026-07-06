@@ -17,7 +17,8 @@ ks_compare(
   comp_name = NULL,
   find_patterns = FALSE,
   n_first_last = 5L,
-  max_unmatched_rows = 100L
+  max_unmatched_rows = 100L,
+  loglevel = c("verdict", "verbose")
 )
 }
 \arguments{
@@ -115,6 +116,17 @@ apportioned proportionally between the two sides; truncation is
 recorded on the result's \code{truncated} and \code{n_total} attributes.
 Set to \code{0} to skip storing the row data entirely (the row counts
 on \code{cmp$key_diff} and \code{summary()} are unaffected).}
+
+\item{loglevel}{Controls what \code{\link[=print]{print()}} emits after the comparison. One of:
+\itemize{
+\item \code{"verdict"} (default): prints a single coloured verdict line
+(\code{cli_alert_success} / \verb{_warning} / \verb{_danger}) plus any
+\code{"critical"} recommendations. The full schema / rows / values
+breakdown is omitted. Pipeline info messages (duplicate-key
+resolution, auto-key selection, etc.) are unaffected.
+\item \code{"verbose"}: \code{\link[=print]{print()}} emits the complete schema / rows / values
+breakdown. Pipeline info messages fire normally as well.
+}}
 }
 \value{
 A \code{ks_comparison} object with components:
@@ -134,6 +146,10 @@ tibble with the standard column layout).
 \code{max_unmatched_rows}); see \code{\link[=ks_unmatched_rows]{ks_unmatched_rows()}}.
 \item \code{first_last_unequal}: per-column first / last \code{n_first_last}
 differing observations in \code{key_id} order (PROC COMPARE-style).
+\item \code{verdict}: a list with \code{headline} (character), \code{severity}
+(\code{"ok"}, \code{"info"}, \code{"warn"}, or \code{"critical"}), \code{pct_match}
+(0–100 numeric), \code{n_cells}, and \code{n_diffs}; the same summary
+shown by \code{\link[=print]{print()}}.
 \item \code{options}, \code{tolerance}: the inputs (echoed for the manifest).
 \item \code{manifest}: input hashes + run metadata.
 }

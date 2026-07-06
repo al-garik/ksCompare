@@ -53,17 +53,18 @@ string normalisation, time-zone handling.
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/ksCompare/ksCompare}
-  \item Report bugs at \url{https://github.com/ksCompare/ksCompare/issues}
+  \item \url{https://al-garik.github.io/ksCompare/}
+  \item \url{https://github.com/al-garik/ksCompare}
+  \item Report bugs at \url{https://github.com/al-garik/ksCompare/issues}
 }
 
 }
 \author{
-\strong{Maintainer}: ksCompare authors \email{noreply@example.com}
+\strong{Maintainer}: Igor Aleschenkov \email{igor.aleschenkov@gmail.com}
 
 Authors:
 \itemize{
-  \item ksCompare authors \email{noreply@example.com}
+  \item Igor Aleschenkov \email{igor.aleschenkov@gmail.com}
 }
 
 }

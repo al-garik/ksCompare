@@ -75,7 +75,9 @@ attr(si, "bits")
 
 The bit names follow the SAS documentation; only flags with a clear
 correspondence in tibble-land are populated. Extra ksCompare findings
-(patterns, suggestions) live on the `ks_comparison` object directly.
+(verdict, recommendations, patterns) live on the `ks_comparison`
+object directly, and helper summaries are available via
+`ks_cause_summary()` / `ks_row_diff_summary()`.
 
 ## Things ksCompare does not try to replicate
 
