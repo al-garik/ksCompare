@@ -34,6 +34,17 @@ string normalisation, time-zone handling.
 \code{\link[=as_outnoequal]{as_outnoequal()}} -- PROC COMPARE-style output datasets.
 \item \code{\link[=ks_sysinfo]{ks_sysinfo()}} -- SAS \verb{&SYSINFO}-compatible bitmask for CI.
 }
+}
+
+\section{Data validation engine}{
+\itemize{
+\item \code{\link[=ks_check_rules]{ks_check_rules()}} -- apply declarative row-wise validation rules.
+\item \code{\link[=ks_collapse_check_msgs]{ks_collapse_check_msgs()}} -- flatten list-column messages.
+\item \code{\link[=ks_check_summary]{ks_check_summary()}} -- overview and violation statistics.
+\item \code{\link[=ks_check_report_html]{ks_check_report_html()}} -- self-contained HTML validation report.
+\item \code{\link[=ks_compare_check_state]{ks_compare_check_state()}} -- diff two validation runs.
+\item \code{\link[=ks_save2xlsx_by]{ks_save2xlsx_by()}} -- grouped Excel workbook with conditional formatting.
+}
 
 \code{\link[=ks_compare]{ks_compare()}} also accepts file paths directly (\code{.sas7bdat},
 \code{.xpt}, \code{.parquet}, \code{.feather}/\code{.arrow}, \code{.rds}, \code{.rdata}/\code{.rda},
@@ -47,6 +58,7 @@ string normalisation, time-zone handling.
 \item \code{vignette("smart-features", package = "ksCompare")}
 \item \code{vignette("reports", package = "ksCompare")}
 \item \code{vignette("pipeline-gates", package = "ksCompare")}
+\item \code{vignette("powerful_data_validation_engine", package = "ksCompare")}
 }
 }
 
@@ -55,6 +67,7 @@ Useful links:
 \itemize{
   \item \url{https://al-garik.github.io/ksCompare/}
   \item \url{https://github.com/al-garik/ksCompare}
+  \item \url{https://crow16384.r-universe.dev/ksCompare}
   \item Report bugs at \url{https://github.com/al-garik/ksCompare/issues}
 }
 

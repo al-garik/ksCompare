@@ -45,6 +45,6 @@ when no `options =` argument is supplied).
 ``` r
 old <- ks_set_comp_options(path = tempfile("ksCompare_"), str_case = "fold")
 ks_comp_options()$path
-#> [1] "/tmp/RtmpLltSiF/ksCompare_430392a7725f3"
+#> [1] "/var/folders/rn/3s0h46m118j426j_fmjr1z8m0000gn/T//RtmpsRNjFP/ksCompare_5ea5466a70e7"
 do.call(options, old)  # restore
 ```

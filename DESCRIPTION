@@ -1,6 +1,6 @@
 Package: ksCompare
 Title: Smart Data Frame Comparison in the Spirit of SAS PROC COMPARE
-Version: 0.2.3
+Version: 0.2.4
 Authors@R: 
     person("Igor", "Aleschenkov", , "igor.aleschenkov@gmail.com", role = c("aut", "cre"))
 Description: A tidyverse-native engine for comparing two data frames in the
@@ -19,6 +19,7 @@ Imports:
     cli,
     digest,
     dplyr,
+    purrr,
     rlang,
     stringi,
     tibble,
@@ -28,6 +29,7 @@ Suggests:
     arsenal,
     broom,
     clue,
+    ggplot2,
     haven,
     htmltools,
     knitr,

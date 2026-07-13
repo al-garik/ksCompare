@@ -1,5 +1,72 @@
 # Changelog
 
+## ksCompare 0.2.4
+
+### New features — data validation engine
+
+- `ks_check_rules(data, rules, mode)` applies a declarative list of
+  one-sided-formula rules row-wise and records a `check_msgs`
+  list-column. Two modes: `"first"` (stops at first failure per row,
+  fast) and `"all"` (collects every failing message per row, thorough).
+
+- `ks_collapse_check_msgs(data, col)` collapses the `check_msgs`
+  list-column produced by
+  [`ks_check_rules()`](https://al-garik.github.io/ksCompare/reference/ks_check_rules.md)
+  to a plain character column, with a configurable `sep` argument.
+
+- `ks_check_summary(data, col)` returns a named list with two tibbles:
+  `overview` (total / passing / failing rows and pass rate) and
+  `violations` (per-message counts and percentages, sorted descending).
+  No file is written.
+
+- `ks_check_report_html(data, path, ...)` renders a self-contained HTML
+  check report using `htmltools` and `reactable` — no Quarto, no Pandoc.
+  Follows the same `path = NULL / NA / "file.html"` routing as
+  [`ks_report_html()`](https://al-garik.github.io/ksCompare/reference/ks_report_html.md).
+  Sections: KPI cards, violation summary table, row-detail table with OK
+  / Issue status badges.
+
+- `ks_compare_check_state(current, previous, key_cols, compare_cols)`
+  diffs two successive
+  [`ks_check_rules()`](https://al-garik.github.io/ksCompare/reference/ks_check_rules.md)
+  runs and tags every row as `"new"`, `"changed"`, or `""` (unchanged).
+  Designed for iterative QC workflows where only rows that regressed or
+  improved need attention.
+
+- `ks_save2xlsx_by(data, file, colors, split_col, msg_col, ...)` writes
+  a grouped Excel workbook with one worksheet per unique value of
+  `split_col` and applies conditional row highlighting based on
+  substrings in `msg_col`. Built on `openxlsx2` for modern Excel output.
+
+### Dependencies
+
+- `purrr` moved from Suggests to Imports (required by validation
+  engine).
+- `ggplot2` added to Suggests (used in validation engine vignette).
+
+## ksCompare 0.2.3
+
+### New features
+
+- [`ks_compare()`](https://al-garik.github.io/ksCompare/reference/ks_compare.md)
+  gains a `loglevel` parameter to control console output verbosity.
+- Comparison result object gains a `verdict` slot for pipeline
+  integration.
+
+## ksCompare 0.2.2
+
+### Documentation
+
+- Updated pkgdown site with complete reference documentation.
+- Added comprehensive vignette “Powerful Data Validation Engine”.
+
+## ksCompare 0.2.1
+
+### Bug fixes
+
+- Improved robustness of key-column type coercion for mismatched/all-NA
+  key types.
+
 ## ksCompare 0.2.0
 
 ### Performance
@@ -93,7 +160,8 @@
     [`ks_pointblank_step()`](https://al-garik.github.io/ksCompare/reference/ks_assert_clean.md)
     adapter;
     [`as_ks_comparison()`](https://al-garik.github.io/ksCompare/reference/as_ks_comparison.md)
-    generic with method for `arsenal::comparedf`.
+    generic with method for
+    [`arsenal::comparedf`](https://mayoverse.github.io/arsenal/reference/comparedf.html).
   - Documentation: pkgdown site, five long-form vignettes
     (`getting-started`, `from-proc-compare`, `smart-features`,
     `reports`, `pipeline-gates`), and CI workflows for `R-CMD-check`,

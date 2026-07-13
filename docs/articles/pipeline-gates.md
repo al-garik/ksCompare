@@ -82,12 +82,16 @@ agent <- create_agent(tbl = mtcars) |>
 ```
 
 [`ks_pointblank_step()`](https://al-garik.github.io/ksCompare/reference/ks_assert_clean.md)
-wraps `pointblank::specially()`, so the gate participates in the agent’s
-standard pass / warn / fail action levels.
+wraps
+[`pointblank::specially()`](https://rstudio.github.io/pointblank/reference/specially.html),
+so the gate participates in the agent’s standard pass / warn / fail
+action levels.
 
 ## With arsenal
 
-If your codebase already uses `arsenal::comparedf()`, the
+If your codebase already uses
+[`arsenal::comparedf()`](https://mayoverse.github.io/arsenal/reference/comparedf.html),
+the
 [`as_ks_comparison()`](https://al-garik.github.io/ksCompare/reference/as_ks_comparison.md)
 method re-runs the comparison via
 [`ks_compare()`](https://al-garik.github.io/ksCompare/reference/ks_compare.md)

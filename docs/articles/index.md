@@ -8,6 +8,8 @@
   ksCompare](https://al-garik.github.io/ksCompare/articles/getting-started.md):
 - [Pipeline
   gates](https://al-garik.github.io/ksCompare/articles/pipeline-gates.md):
+- [Powerful Data Validation
+  Engine](https://al-garik.github.io/ksCompare/articles/powerful_data_validation_engine.md):
 - [Reports](https://al-garik.github.io/ksCompare/articles/reports.md):
 - [Smart
   features](https://al-garik.github.io/ksCompare/articles/smart-features.md):

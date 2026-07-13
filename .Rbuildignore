@@ -12,3 +12,5 @@
 ^\.air\.toml$
 ^codecov\.yml$
 ^\.lintr$
+^doc$
+^Meta$

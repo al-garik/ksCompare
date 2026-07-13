@@ -27,6 +27,8 @@ navbar:
         href: articles/reports.html
       - text: Pipeline gates
         href: articles/pipeline-gates.html
+      - text: Data validation engine
+        href: articles/powerful_data_validation_engine.html
 
 reference:
 - title: Compare
@@ -60,6 +62,14 @@ reference:
   contents:
   - ks_report_html
   - ks_report_xlsx
+- title: Data validation
+  contents:
+  - ks_check_rules
+  - ks_collapse_check_msgs
+  - ks_compare_check_state
+  - ks_check_summary
+  - ks_check_report_html
+  - ks_save2xlsx_by
 - title: Pipeline gates and interop
   contents:
   - ks_assert_clean

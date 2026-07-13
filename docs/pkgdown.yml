@@ -1,13 +1,14 @@
-pandoc: 3.9.0.2
-pkgdown: 2.2.0
+pandoc: '3.10'
+pkgdown: 2.2.1
 pkgdown_sha: ~
 articles:
   from-proc-compare: from-proc-compare.html
   getting-started: getting-started.html
   pipeline-gates: pipeline-gates.html
+  powerful_data_validation_engine: powerful_data_validation_engine.html
   reports: reports.html
   smart-features: smart-features.html
-last_built: 2026-07-06T13:39Z
+last_built: 2026-07-13T13:50Z
 urls:
   reference: https://al-garik.github.io/ksCompare/reference
   article: https://al-garik.github.io/ksCompare/articles

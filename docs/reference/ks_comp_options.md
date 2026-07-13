@@ -194,12 +194,13 @@ ks_comp_options(path = tempfile("ksCompare_"))
 #> • str_case: "sensitive"
 #> • str_norm: "none"
 #> • tz: "preserve"
-#> • path: "/tmp/RtmpLltSiF/ksCompare_430393f8ed710"
+#> • path:
+#>   "/var/folders/rn/3s0h46m118j426j_fmjr1z8m0000gn/T//RtmpsRNjFP/ksCompare_5ea57f56c0e9"
 
 # Pick up a project-wide global path
 withr::with_options(
   list(ksCompare.path = tempfile("ksCompare_")),
   ks_comp_options()$path
 )
-#> [1] "/tmp/RtmpLltSiF/ksCompare_43039553e3c26"
+#> [1] "/var/folders/rn/3s0h46m118j426j_fmjr1z8m0000gn/T//RtmpsRNjFP/ksCompare_5ea51893424f"
 ```

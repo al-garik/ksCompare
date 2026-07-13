@@ -55,6 +55,29 @@
 - [`ks_report_xlsx()`](https://al-garik.github.io/ksCompare/reference/ks_report_xlsx.md)
   : Render an Excel workbook report
 
+## Data validation
+
+- [`ks_check_rules()`](https://al-garik.github.io/ksCompare/reference/ks_check_rules.md)
+  : Apply a list of validation rules to a data frame
+
+- [`ks_collapse_check_msgs()`](https://al-garik.github.io/ksCompare/reference/ks_collapse_check_msgs.md)
+  : Collapse list-column of check messages to a character column
+
+- [`ks_compare_check_state()`](https://al-garik.github.io/ksCompare/reference/ks_compare_check_state.md)
+  : Compare validation check state between two runs
+
+- [`ks_check_summary()`](https://al-garik.github.io/ksCompare/reference/ks_check_summary.md)
+  :
+
+  Summarise check results from
+  [`ks_check_rules()`](https://al-garik.github.io/ksCompare/reference/ks_check_rules.md)
+
+- [`ks_check_report_html()`](https://al-garik.github.io/ksCompare/reference/ks_check_report_html.md)
+  : Render an HTML check report
+
+- [`ks_save2xlsx_by()`](https://al-garik.github.io/ksCompare/reference/ks_save2xlsx_by.md)
+  : Save a data frame to an XLSX workbook split by a grouping column
+
 ## Pipeline gates and interop
 
 - [`ks_assert_clean()`](https://al-garik.github.io/ksCompare/reference/ks_assert_clean.md)
@@ -64,7 +87,9 @@
 - [`as_ks_comparison()`](https://al-garik.github.io/ksCompare/reference/as_ks_comparison.md)
   :
 
-  Convert an `arsenal::comparedf` result into a `ks_comparison`
+  Convert an
+  [`arsenal::comparedf`](https://mayoverse.github.io/arsenal/reference/comparedf.html)
+  result into a `ks_comparison`
 
 ## Package
 

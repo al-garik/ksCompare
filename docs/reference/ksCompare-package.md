@@ -49,6 +49,26 @@ The single entry point is
 - [`ks_sysinfo()`](https://al-garik.github.io/ksCompare/reference/ks_sysinfo.md)
   – SAS `&SYSINFO`-compatible bitmask for CI.
 
+## Data validation engine
+
+- [`ks_check_rules()`](https://al-garik.github.io/ksCompare/reference/ks_check_rules.md)
+  – apply declarative row-wise validation rules.
+
+- [`ks_collapse_check_msgs()`](https://al-garik.github.io/ksCompare/reference/ks_collapse_check_msgs.md)
+  – flatten list-column messages.
+
+- [`ks_check_summary()`](https://al-garik.github.io/ksCompare/reference/ks_check_summary.md)
+  – overview and violation statistics.
+
+- [`ks_check_report_html()`](https://al-garik.github.io/ksCompare/reference/ks_check_report_html.md)
+  – self-contained HTML validation report.
+
+- [`ks_compare_check_state()`](https://al-garik.github.io/ksCompare/reference/ks_compare_check_state.md)
+  – diff two validation runs.
+
+- [`ks_save2xlsx_by()`](https://al-garik.github.io/ksCompare/reference/ks_save2xlsx_by.md)
+  – grouped Excel workbook with conditional formatting.
+
 [`ks_compare()`](https://al-garik.github.io/ksCompare/reference/ks_compare.md)
 also accepts file paths directly (`.sas7bdat`, `.xpt`, `.parquet`,
 `.feather`/`.arrow`, `.rds`, `.rdata`/`.rda`, `.csv`, `.tsv`) and
@@ -66,6 +86,8 @@ chooses a reader based on the file extension.
 
 - [`vignette("pipeline-gates", package = "ksCompare")`](https://al-garik.github.io/ksCompare/articles/pipeline-gates.md)
 
+- [`vignette("powerful_data_validation_engine", package = "ksCompare")`](https://al-garik.github.io/ksCompare/articles/powerful_data_validation_engine.md)
+
 ## See also
 
 Useful links:
@@ -73,6 +95,8 @@ Useful links:
 - <https://al-garik.github.io/ksCompare/>
 
 - <https://github.com/al-garik/ksCompare>
+
+- <https://crow16384.r-universe.dev/ksCompare>
 
 - Report bugs at <https://github.com/al-garik/ksCompare/issues>
 

@@ -50,9 +50,10 @@ ks_pointblank_step(
 - agent:
 
   A `ptblank_agent` (typically piped in from
-  `pointblank::create_agent()`) or a data frame / tibble. The comparison
-  gate is added as a step on this object and `agent` is returned, so it
-  composes with the rest of a pointblank pipeline.
+  [`pointblank::create_agent()`](https://rstudio.github.io/pointblank/reference/create_agent.html))
+  or a data frame / tibble. The comparison gate is added as a step on
+  this object and `agent` is returned, so it composes with the rest of a
+  pointblank pipeline.
 
 - comparison:
 
@@ -82,8 +83,11 @@ Two flavours are provided:
   dropped into a `|>` chain.
 
 - `ks_pointblank_step()` returns a `pointblank` step that wraps
-  `ks_assert_clean()` for use inside `pointblank::create_agent()` /
-  `pointblank::action_levels()` flows.
+  `ks_assert_clean()` for use inside
+  [`pointblank::create_agent()`](https://rstudio.github.io/pointblank/reference/create_agent.html)
+  /
+  [`pointblank::action_levels()`](https://rstudio.github.io/pointblank/reference/action_levels.html)
+  flows.
 
 ## Examples
 

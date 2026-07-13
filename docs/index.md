@@ -170,7 +170,8 @@ Optional integrations include
 [`ks_pointblank_step()`](https://al-garik.github.io/ksCompare/reference/ks_assert_clean.md)
 for pointblank pipelines and
 [`as_ks_comparison()`](https://al-garik.github.io/ksCompare/reference/as_ks_comparison.md)
-for teams moving from `arsenal::comparedf()`.
+for teams moving from
+[`arsenal::comparedf()`](https://mayoverse.github.io/arsenal/reference/comparedf.html).
 
 ## License
 
