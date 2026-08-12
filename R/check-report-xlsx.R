@@ -42,7 +42,7 @@
 #' }
 #'
 #' @name ks_save2xlsx_by
-#' @importFrom dplyr filter select mutate across where
+#' @importFrom dplyr mutate across where
 #' @importFrom purrr map_chr
 #' @export
 ks_save2xlsx_by <- function(data, file, colors,
@@ -55,6 +55,18 @@ ks_save2xlsx_by <- function(data, file, colors,
 
   normalize_hex_color <- function(x) {
     sub("^#", "", x)
+  }
+
+  # Estimate column widths from a sample of rows (capped at 200) to avoid
+  # scanning every cell, which is the main cost of widths = "auto".
+  estimate_col_widths <- function(df, max_rows = 200L) {
+    sample_df <- if (nrow(df) > max_rows) df[seq_len(max_rows), , drop = FALSE] else df
+    col_names_nchar <- nchar(names(df))
+    data_nchar <- vapply(sample_df, function(col) {
+      max(nchar(as.character(col), type = "chars", keepNA = FALSE), na.rm = TRUE)
+    }, numeric(1))
+    widths <- pmax(col_names_nchar, data_nchar) * 1.1 + 2
+    pmin(widths, 60)
   }
 
   colors <- vapply(colors, normalize_hex_color, character(1), USE.NAMES = TRUE)
@@ -85,10 +97,15 @@ ks_save2xlsx_by <- function(data, file, colors,
     }
   }
 
-  for (tp in unique(data[[split_col_name]])) {
-    sheet_data <- data %>%
-      dplyr::filter({{ split_col }} == tp) %>%
-      dplyr::select(-{{ split_col }})
+  # Pre-split data once rather than filtering per sheet inside the loop.
+  data_no_split <- data[, setdiff(names(data), split_col_name), drop = FALSE]
+  split_groups <- split(data_no_split, data[[split_col_name]], drop = TRUE)
+  # Preserve the original order of unique values.
+  group_order <- unique(data[[split_col_name]])
+  split_groups <- split_groups[as.character(group_order)]
+
+  for (tp in group_order) {
+    sheet_data <- split_groups[[as.character(tp)]]
 
     nc <- ncol(sheet_data)
 
@@ -110,19 +127,23 @@ ks_save2xlsx_by <- function(data, file, colors,
 
     row_offset <- if (has_labels) 1L else 0L
 
+    col_widths <- estimate_col_widths(sheet_data)
+
     wb <- wb %>%
       openxlsx2::wb_add_worksheet(sheet = tp)
 
+    # wb_add_data_table writes data + autofilter + bordered table style in a
+    # single O(1) XML block, replacing wb_add_data + wb_add_filter + the
+    # slow per-cell wb_add_border that was O(rows²) in practice.
     wb <- wb %>%
-      openxlsx2::wb_add_data(
+      openxlsx2::wb_add_data_table(
         x = sheet_data,
         start_row = 1L + row_offset,
-        na.strings = if (na_to_empty) "" else NULL
-      ) %>%
-      openxlsx2::wb_add_filter(rows = 1L + row_offset, cols = 1:nc)
+        table_style = "TableStyleMedium2"
+      )
 
     wb <- wb %>%
-      openxlsx2::wb_set_col_widths(cols = 1:nc, widths = "auto") %>%
+      openxlsx2::wb_set_col_widths(cols = 1:nc, widths = col_widths) %>%
       openxlsx2::wb_freeze_pane(first_active_row = 2L + row_offset, first_active_col = 1L)
 
     if (has_labels) {
@@ -191,23 +212,6 @@ ks_save2xlsx_by <- function(data, file, colors,
       }
     }
 
-    if (nr > 0) {
-      data_dims <- openxlsx2::wb_dims(
-        rows = (1L + row_offset):(nr + 1L + row_offset),
-        cols = 1:nc
-      )
-      border_color <- openxlsx2::wb_color("000000")
-      wb <- wb %>%
-        openxlsx2::wb_add_border(
-          dims = data_dims,
-          bottom_border = "thin", top_border = "thin",
-          left_border = "thin", right_border = "thin",
-          inner_hgrid = "thin", inner_vgrid = "thin",
-          inner_hcolor = border_color, inner_vcolor = border_color,
-          bottom_color = border_color, top_color = border_color,
-          left_color = border_color, right_color = border_color
-        )
-    }
   }
 
   wb %>% openxlsx2::wb_save(file)
